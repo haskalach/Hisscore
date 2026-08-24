@@ -189,12 +189,13 @@ class _GamePageState extends State<GamePage>
           body: SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final width = constraints.maxWidth.clamp(0, 520).toDouble();
                 return Center(
-                  child: SizedBox(
-                    width: width,
-                    height: constraints.maxHeight,
-                    child: Padding(
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: SizedBox(
+                      width: 440,
+                      height: 760,
+                      child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
@@ -296,7 +297,8 @@ class _GamePageState extends State<GamePage>
                       ),
                     ),
                   ),
-                );
+                ),
+              );
               },
             ),
           ),
