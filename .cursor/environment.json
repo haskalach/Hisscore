@@ -1,0 +1,17 @@
+{
+  "name": "Hisscore",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "user": "ubuntu",
+  "install": "if [ -f Hisscore/pubspec.yaml ]; then cd Hisscore && flutter pub get; fi",
+  "terminals": [
+    {
+      "name": "flutter-web",
+      "command": "cd Hisscore && flutter run -d web-server --web-hostname 0.0.0.0 --web-port 8080"
+    }
+  ],
+  "ports": [8080],
+  "chromeExecutablePath": "/usr/bin/google-chrome-stable"
+}
