@@ -45,12 +45,12 @@ class GridPoint {
 /// Pure Snake rules: move, eat, grow, collide. No Flutter dependency.
 class SnakeEngine {
   SnakeEngine({
-    this.columns = 18,
-    this.rows = 18,
+    this.columns = 20,
+    this.rows = 20,
     this.initialLength = 3,
     this.pointsPerFood = 10,
-    this.initialTick = const Duration(milliseconds: 140),
-    this.minTick = const Duration(milliseconds: 70),
+    this.initialTick = const Duration(milliseconds: 240),
+    this.minTick = const Duration(milliseconds: 90),
     this.firstFoodDistance = 4,
     Random? random,
   }) : random = random ?? Random() {

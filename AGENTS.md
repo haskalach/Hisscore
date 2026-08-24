@@ -24,4 +24,4 @@ The web-server process is a long-running `terminals` job, not an install step. A
 
 `flutter run -d chrome` needs a display. Prefer `web-server` plus a browser against port 8080 in this environment.
 
-Widget tests use Flutter's fake clock: `tester.pump(Duration)` advances Snake ticks (140ms each). The first apple is 4 cells ahead of the starting snake, so a score of `00010` appears after about 560ms of pumped time.
+Widget tests use Flutter's fake clock: `tester.pump(Duration)` advances Snake ticks (240ms each by default). The first apple is 4 cells ahead of the starting snake, so a score of `00010` appears after about 960ms of pumped time.

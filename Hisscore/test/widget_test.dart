@@ -35,7 +35,7 @@ void main() {
     expect(find.text('PAUSE'), findsOneWidget);
 
     // First apple is 4 cells ahead; ticks are 140ms.
-    await tester.pump(const Duration(milliseconds: 620));
+    await tester.pump(const Duration(milliseconds: 1100));
     final score = tester.widget<Text>(find.byKey(const Key('score-SCORE')));
     expect(score.data, '00010');
     final hi = tester.widget<Text>(find.byKey(const Key('score-HI')));
@@ -59,7 +59,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('PLAY'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 800));
 
     expect(find.text('GAME OVER'), findsOneWidget);
     expect(find.text('PLAY AGAIN'), findsOneWidget);

@@ -31,6 +31,8 @@ class _GamePageState extends State<GamePage>
   int highScore = 0;
   bool newHighScore = false;
 
+  DateTime? startedAt;
+
   @override
   void initState() {
     super.initState();
@@ -84,12 +86,20 @@ class _GamePageState extends State<GamePage>
   void _onPrimary() {
     setState(() {
       if (engine.phase == GamePhase.running) {
+        final justStarted =
+            startedAt != null &&
+            DateTime.now().difference(startedAt!) <
+                const Duration(milliseconds: 400);
+        if (justStarted) {
+          return;
+        }
         engine.pause();
         ticker?.cancel();
         return;
       }
       newHighScore = false;
       engine.start();
+      startedAt = DateTime.now();
       _armTicker();
     });
   }

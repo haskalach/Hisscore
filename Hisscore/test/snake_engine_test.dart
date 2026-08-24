@@ -5,8 +5,8 @@ import 'package:hisscore/game/snake_engine.dart';
 
 void main() {
   SnakeEngine engine({
-    int columns = 18,
-    int rows = 18,
+    int columns = 20,
+    int rows = 20,
     int firstFoodDistance = 4,
     int seed = 1,
   }) {
@@ -45,7 +45,7 @@ void main() {
     game.tick();
     expect(game.snake, hasLength(3));
     expect(game.score, 0);
-    expect(game.head, GridPoint((18 ~/ 2) + 1, 18 ~/ 2));
+    expect(game.head, GridPoint((20 ~/ 2) + 1, 20 ~/ 2));
   });
 
   test('ignores a reverse turn so the snake cannot fold into itself', () {
@@ -63,7 +63,7 @@ void main() {
     expect(game.direction, Direction.right);
     game.tick();
     expect(game.direction, Direction.up);
-    expect(game.head.y, (18 ~/ 2) - 1);
+    expect(game.head.y, (20 ~/ 2) - 1);
   });
 
   test('hits a wall and ends the game', () {
