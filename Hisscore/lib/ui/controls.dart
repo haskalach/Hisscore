@@ -14,17 +14,17 @@ class ArcadeDpad extends StatelessWidget {
       return Semantics(
         button: true,
         label: label,
-        child: Material(
-          color: RetroColors.cabinetRim,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: () => onTurn(direction),
-            child: SizedBox(
-              width: 56,
-              height: 56,
-              child: Icon(icon, color: RetroColors.amber, size: 28),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) => onTurn(direction),
+          child: Container(
+            width: 64,
+            height: 64,
+            decoration: const BoxDecoration(
+              color: RetroColors.cabinetRim,
+              shape: BoxShape.circle,
             ),
+            child: Icon(icon, color: RetroColors.amber, size: 30),
           ),
         ),
       );
@@ -68,9 +68,9 @@ class ArcadeActionButton extends StatelessWidget {
       child: Material(
         color: RetroColors.cherry,
         borderRadius: BorderRadius.circular(28),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(28),
-          onTap: onPressed,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) => onPressed(),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
             child: Text(

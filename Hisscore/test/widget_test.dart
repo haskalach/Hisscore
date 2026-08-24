@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hisscore/game/high_score_store.dart';
 import 'package:hisscore/game/snake_engine.dart';
 import 'package:hisscore/main.dart';
+import 'package:hisscore/ui/board.dart';
 
 void main() {
   testWidgets('title cabinet shows HISCORE and PLAY', (tester) async {
@@ -40,6 +41,30 @@ void main() {
     expect(score.data, '00010');
     final hi = tester.widget<Text>(find.byKey(const Key('score-HI')));
     expect(hi.data, '00010');
+  });
+
+  testWidgets('Up on the D-pad turns the snake before the next tick', (tester) async {
+    await tester.pumpWidget(
+      HisscoreApp(
+        highScoreStore: InMemoryHighScoreStore(),
+        engineFactory: () => SnakeEngine(random: Random(1)),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('PLAY'));
+    await tester.pump();
+
+    await tester.tap(find.bySemanticsLabel('Up'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 240));
+
+    final painter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((paint) => paint.painter)
+        .whereType<SnakeBoardPainter>()
+        .single;
+    expect(painter.engine.direction, Direction.up);
+    expect(painter.engine.head.y, lessThan(painter.engine.snake.last.y));
   });
 
   testWidgets('running into a wall shows GAME OVER and PLAY AGAIN restarts', (
