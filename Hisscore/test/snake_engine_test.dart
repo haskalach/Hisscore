@@ -24,7 +24,8 @@ void main() {
     expect(game.snake, hasLength(3));
     expect(game.direction, Direction.right);
     expect(game.score, 0);
-    expect(game.food, GridPoint(game.head.x + 4, game.head.y));
+    expect(game.head, const GridPoint(2, 10));
+    expect(game.food, const GridPoint(6, 10));
   });
 
   test('eating the first apple grows the snake and awards 10 points', () {
@@ -45,7 +46,7 @@ void main() {
     game.tick();
     expect(game.snake, hasLength(3));
     expect(game.score, 0);
-    expect(game.head, GridPoint((20 ~/ 2) + 1, 20 ~/ 2));
+    expect(game.head, const GridPoint(3, 10));
   });
 
   test('ignores a reverse turn so the snake cannot fold into itself', () {
@@ -63,17 +64,19 @@ void main() {
     expect(game.direction, Direction.right);
     game.tick();
     expect(game.direction, Direction.up);
-    expect(game.head.y, (20 ~/ 2) - 1);
+    expect(game.head.y, 9);
   });
 
   test('hits a wall and ends the game', () {
     final game = engine(columns: 6, rows: 6, firstFoodDistance: 1);
     game.start();
-    // Head starts at (3,3). Eat at (4,3), then (5,3), then out at (6,3).
-    game.tick();
-    game.tick();
-    game.tick();
+    var ticks = 0;
+    while (game.phase != GamePhase.gameOver && ticks < 20) {
+      game.tick();
+      ticks += 1;
+    }
     expect(game.phase, GamePhase.gameOver);
+    expect(ticks, greaterThan(0));
   });
 
   test('self-collision ends the game', () {

@@ -30,8 +30,8 @@ class _GamePageState extends State<GamePage>
   Timer? ticker;
   int highScore = 0;
   bool newHighScore = false;
-
   DateTime? startedAt;
+  final focusNode = FocusNode();
 
   @override
   void initState() {
@@ -100,6 +100,7 @@ class _GamePageState extends State<GamePage>
       newHighScore = false;
       engine.start();
       startedAt = DateTime.now();
+      focusNode.requestFocus();
       _armTicker();
     });
   }
@@ -127,6 +128,7 @@ class _GamePageState extends State<GamePage>
   void dispose() {
     ticker?.cancel();
     pulse.dispose();
+    focusNode.dispose();
     super.dispose();
   }
 
@@ -180,6 +182,7 @@ class _GamePageState extends State<GamePage>
         },
       },
       child: Focus(
+        focusNode: focusNode,
         autofocus: true,
         child: Scaffold(
           backgroundColor: RetroColors.voidBg,
@@ -334,12 +337,14 @@ class _Overlay extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (phase == GamePhase.ready || blinkOn)
-                Text(
+              Opacity(
+                opacity: phase == GamePhase.ready && !blinkOn ? 0.35 : 1,
+                child: Text(
                   title,
                   textAlign: TextAlign.center,
                   style: RetroText.pixel(size: 14, color: RetroColors.amber),
                 ),
+              ),
               if (phase == GamePhase.gameOver) ...[
                 const SizedBox(height: 16),
                 Text(

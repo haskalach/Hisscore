@@ -80,7 +80,7 @@ class SnakeEngine {
   GridPoint get head => snake.first;
 
   void reset() {
-    final startX = columns ~/ 2;
+    final startX = (initialLength - 1).clamp(1, columns - 1);
     final startY = rows ~/ 2;
     direction = Direction.right;
     queuedDirection = null;

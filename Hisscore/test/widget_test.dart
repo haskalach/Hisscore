@@ -59,7 +59,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('PLAY'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump(const Duration(milliseconds: 1300));
 
     expect(find.text('GAME OVER'), findsOneWidget);
     expect(find.text('PLAY AGAIN'), findsOneWidget);
