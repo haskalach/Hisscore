@@ -1,6 +1,10 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
+import '../game/food_types.dart';
 import '../game/snake_engine.dart';
+import 'particles.dart';
 import 'theme.dart';
 
 class SnakeBoard extends StatelessWidget {
@@ -8,11 +12,13 @@ class SnakeBoard extends StatelessWidget {
     super.key,
     required this.engine,
     required this.pulse,
+    this.particles,
     this.onSwipe,
   });
 
   final SnakeEngine engine;
   final double pulse;
+  final ParticleSystem? particles;
   final void Function(Direction direction)? onSwipe;
 
   @override
@@ -42,9 +48,15 @@ class SnakeBoard extends StatelessWidget {
               ),
             ],
           ),
-          child: CustomPaint(
-            painter: SnakeBoardPainter(engine: engine, pulse: pulse),
-            child: const SizedBox.expand(),
+          child: ClipRect(
+            child: CustomPaint(
+              painter: SnakeBoardPainter(
+                engine: engine,
+                pulse: pulse,
+                particles: particles,
+              ),
+              child: const SizedBox.expand(),
+            ),
           ),
         ),
       ),
@@ -53,22 +65,29 @@ class SnakeBoard extends StatelessWidget {
 }
 
 class SnakeBoardPainter extends CustomPainter {
-  SnakeBoardPainter({required this.engine, required this.pulse});
+  SnakeBoardPainter({
+    required this.engine,
+    required this.pulse,
+    this.particles,
+  });
 
   final SnakeEngine engine;
   final double pulse;
+  final ParticleSystem? particles;
 
   @override
   void paint(Canvas canvas, Size size) {
     final cellW = size.width / engine.columns;
     final cellH = size.height / engine.rows;
 
+    // ── Background ──
     final bg = Paint()..color = RetroColors.screen;
     canvas.drawRect(Offset.zero & size, bg);
 
+    // ── Grid lines ──
     final gridPaint = Paint()
       ..color = RetroColors.grid
-      ..strokeWidth = 1;
+      ..strokeWidth = 0.8;
     for (var x = 1; x < engine.columns; x++) {
       final dx = x * cellW;
       canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), gridPaint);
@@ -78,35 +97,272 @@ class SnakeBoardPainter extends CustomPainter {
       canvas.drawLine(Offset(0, dy), Offset(size.width, dy), gridPaint);
     }
 
+    // ── Obstacles ──
+    if (engine.obstacles.isNotEmpty) {
+      for (final obs in engine.obstacles) {
+        final rect = _cell(obs, cellW, cellH).deflate(cellW * 0.04);
+        final obsPaint = Paint()..color = RetroColors.obstacle;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, Radius.circular(cellW * 0.1)),
+          obsPaint,
+        );
+        // Highlight edge
+        final rimPaint = Paint()
+          ..color = RetroColors.obstacleRim
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, Radius.circular(cellW * 0.1)),
+          rimPaint,
+        );
+      }
+    }
+
+    // ── Snake glow pass ──
+    for (var i = engine.snake.length - 1; i >= 0; i--) {
+      final segment = engine.snake[i];
+      final rect = _cell(segment, cellW, cellH).inflate(cellW * 0.12);
+      final t = engine.snake.length > 1
+          ? i / (engine.snake.length - 1)
+          : 0.0;
+      final glowColor = Color.lerp(
+        RetroColors.phosphorHot,
+        RetroColors.snakeTail,
+        t,
+      )!;
+      final glowPaint = Paint()
+        ..color = glowColor.withValues(alpha: 0.12)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(cellW * 0.25)),
+        glowPaint,
+      );
+    }
+
+    // ── Snake body (gradient head → tail) ──
     for (var i = engine.snake.length - 1; i >= 0; i--) {
       final segment = engine.snake[i];
       final rect = _cell(segment, cellW, cellH).deflate(cellW * 0.08);
       final isHead = i == 0;
-      final bodyPaint = Paint()
-        ..color = isHead ? RetroColors.phosphorHot : RetroColors.phosphor;
+      final t = engine.snake.length > 1
+          ? i / (engine.snake.length - 1)
+          : 0.0;
+
+      final bodyColor = isHead
+          ? RetroColors.phosphorHot
+          : Color.lerp(RetroColors.phosphor, RetroColors.snakeTail, t)!;
+
+      final bodyPaint = Paint()..color = bodyColor;
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect, Radius.circular(cellW * 0.18)),
         bodyPaint,
       );
+
+      // ── Connecting segments (fill gaps between adjacent segments) ──
+      if (i < engine.snake.length - 1) {
+        final prev = engine.snake[i + 1];
+        final dx = segment.x - prev.x;
+        final dy = segment.y - prev.y;
+        // Only draw connector if segments are adjacent (not wrapping).
+        if (dx.abs() <= 1 && dy.abs() <= 1 && (dx != 0 || dy != 0)) {
+          final connRect = Rect.fromCenter(
+            center: Offset(
+              (segment.x + prev.x) / 2 * cellW + cellW / 2,
+              (segment.y + prev.y) / 2 * cellH + cellH / 2,
+            ),
+            width: dx != 0 ? cellW * 0.6 : cellW * 0.65,
+            height: dy != 0 ? cellH * 0.6 : cellH * 0.65,
+          );
+          final connColor = Color.lerp(
+            RetroColors.phosphor,
+            RetroColors.snakeTail,
+            t,
+          )!;
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(connRect, Radius.circular(cellW * 0.15)),
+            Paint()..color = connColor,
+          );
+        }
+      }
+
       if (isHead) {
         _drawEyes(canvas, rect, cellW);
+        // Shield indicator on head.
+        if (engine.hasShield) {
+          final shieldPaint = Paint()
+            ..color = RetroColors.shieldCyan.withValues(alpha: 0.35)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2;
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(
+              rect.inflate(cellW * 0.1),
+              Radius.circular(cellW * 0.22),
+            ),
+            shieldPaint,
+          );
+        }
       }
     }
 
-    final foodRect = _cell(engine.food, cellW, cellH);
-    final foodScale = 0.72 + (pulse * 0.14);
-    final foodPaint = Paint()..color = RetroColors.food;
-    canvas.drawCircle(foodRect.center, foodRect.shortestSide * foodScale / 2, foodPaint);
-    canvas.drawCircle(
-      foodRect.center.translate(0, -foodRect.height * 0.22),
-      foodRect.shortestSide * 0.08,
-      Paint()..color = RetroColors.phosphorDim,
-    );
+    // ── Food items ──
+    for (final item in engine.foods) {
+      _paintFood(canvas, item, cellW, cellH);
+    }
 
-    final scan = Paint()..color = const Color(0x22000000);
+    // ── Particles ──
+    particles?.update();
+    particles?.paint(canvas);
+
+    // ── Scanlines ──
+    final scan = Paint()..color = RetroColors.scanline;
     for (var y = 0.0; y < size.height; y += 3) {
       canvas.drawRect(Rect.fromLTWH(0, y, size.width, 1.2), scan);
     }
+
+    // ── Vignette ──
+    final vignetteRect = Offset.zero & size;
+    final vignettePaint = Paint()
+      ..shader = ui.Gradient.radial(
+        vignetteRect.center,
+        size.longestSide * 0.7,
+        [const Color(0x00000000), const Color(0x80000000)],
+        [0.55, 1.0],
+      );
+    canvas.drawRect(vignetteRect, vignettePaint);
+  }
+
+  // ─── Food rendering per type ──────────────────────
+
+  void _paintFood(Canvas canvas, FoodItem item, double cellW, double cellH) {
+    final rect = _cell(item.position, cellW, cellH);
+    final center = rect.center;
+    final r = rect.shortestSide / 2;
+
+    // Pulsing animation factor (only for permanent foods).
+    final foodScale = item.lifetime == null
+        ? 0.72 + (pulse * 0.14)
+        : 0.60 + (item.lifeFraction(engine.totalTicks) * 0.26);
+
+    switch (item.type) {
+      case FoodType.apple:
+        // Red apple with stem.
+        final applePaint = Paint()..color = RetroColors.food;
+        canvas.drawCircle(center, r * foodScale, applePaint);
+        canvas.drawCircle(
+          center.translate(0, -rect.height * 0.22),
+          r * 0.12,
+          Paint()..color = RetroColors.phosphorDim,
+        );
+
+      case FoodType.star:
+        // Gold star shape (5-pointed).
+        _drawStar(canvas, center, r * foodScale * 0.9, RetroColors.starGold);
+        // Glow.
+        canvas.drawCircle(
+          center,
+          r * foodScale,
+          Paint()
+            ..color = RetroColors.starGold.withValues(alpha: 0.15)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
+
+      case FoodType.shield:
+        // Cyan diamond.
+        final shieldPaint = Paint()..color = RetroColors.shieldCyan;
+        final path = Path()
+          ..moveTo(center.dx, center.dy - r * foodScale)
+          ..lineTo(center.dx + r * foodScale * 0.7, center.dy)
+          ..lineTo(center.dx, center.dy + r * foodScale)
+          ..lineTo(center.dx - r * foodScale * 0.7, center.dy)
+          ..close();
+        canvas.drawPath(path, shieldPaint);
+
+      case FoodType.speedBurst:
+        // Yellow lightning bolt.
+        final boltPaint = Paint()..color = RetroColors.speedYellow;
+        final s = r * foodScale;
+        final path = Path()
+          ..moveTo(center.dx - s * 0.2, center.dy - s)
+          ..lineTo(center.dx + s * 0.5, center.dy - s * 0.1)
+          ..lineTo(center.dx, center.dy)
+          ..lineTo(center.dx + s * 0.3, center.dy)
+          ..lineTo(center.dx - s * 0.4, center.dy + s)
+          ..lineTo(center.dx, center.dy * 0.01 + center.dy)
+          ..close();
+        canvas.drawPath(path, boltPaint);
+        // Simplified: draw as a small rect for reliability.
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(center: center, width: s, height: s * 1.4),
+            Radius.circular(s * 0.2),
+          ),
+          boltPaint,
+        );
+
+      case FoodType.shrink:
+        // Purple ring.
+        final shrinkPaint = Paint()
+          ..color = RetroColors.shrinkPurple
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5;
+        canvas.drawCircle(center, r * foodScale * 0.7, shrinkPaint);
+        canvas.drawCircle(
+          center,
+          r * foodScale * 0.3,
+          Paint()..color = RetroColors.shrinkPurple,
+        );
+    }
+
+    // Timed food: blink when about to expire.
+    if (item.lifetime != null) {
+      final frac = item.lifeFraction(engine.totalTicks);
+      if (frac < 0.3 && pulse > 0.5) {
+        // Flash overlay to signal imminent despawn.
+        canvas.drawCircle(
+          center,
+          r * 0.5,
+          Paint()..color = const Color(0x44FFFFFF),
+        );
+      }
+    }
+  }
+
+  void _drawStar(Canvas canvas, Offset center, double radius, Color color) {
+    final path = Path();
+    const points = 5;
+    for (var i = 0; i < points * 2; i++) {
+      final r = i.isEven ? radius : radius * 0.45;
+      final angle = (i * 3.14159265 / points) - 3.14159265 / 2;
+      final x = center.dx + r * _cos(angle);
+      final y = center.dy + r * _sin(angle);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  static double _cos(double a) {
+    // Simple cos approximation to avoid dart:math import in painter.
+    // Use Taylor series or just import. Let's just use the values directly.
+    // Actually, since we need precision, let's compute manually.
+    // cos(a) = 1 - a^2/2 + a^4/24 - ...
+    // Better to just do it properly:
+    final normalized = a % (2 * 3.14159265);
+    return _cosTable(normalized);
+  }
+
+  static double _sin(double a) {
+    return _cos(a - 3.14159265 / 2);
+  }
+
+  static double _cosTable(double a) {
+    // Use Horner form for cos Taylor series (sufficient for our use).
+    final a2 = a * a;
+    return 1.0 - a2 / 2.0 + a2 * a2 / 24.0 - a2 * a2 * a2 / 720.0;
   }
 
   void _drawEyes(Canvas canvas, Rect head, double cellW) {
@@ -120,8 +376,13 @@ class SnakeBoardPainter extends CustomPainter {
     final cx = head.center.dx + head.width * offset.dx;
     final cy = head.center.dy + head.height * offset.dy;
     final r = cellW * 0.08;
-    canvas.drawCircle(Offset(cx, cy - r * 1.6), r, eye);
-    canvas.drawCircle(Offset(cx, cy + r * 1.6), r, eye);
+    // Eye whites (slightly bigger).
+    final pupilOffset = switch (engine.direction) {
+      Direction.right || Direction.left => Offset(0, r * 1.6),
+      Direction.up || Direction.down => Offset(r * 1.6, 0),
+    };
+    canvas.drawCircle(Offset(cx - pupilOffset.dx, cy - pupilOffset.dy), r, eye);
+    canvas.drawCircle(Offset(cx + pupilOffset.dx, cy + pupilOffset.dy), r, eye);
   }
 
   Rect _cell(GridPoint point, double cellW, double cellH) {

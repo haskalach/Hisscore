@@ -35,7 +35,7 @@ void main() {
     await tester.pump();
     expect(find.text('PAUSE'), findsOneWidget);
 
-    // First apple is 4 cells ahead; ticks are 140ms.
+    // First apple is 4 cells ahead; ticks are 240ms.
     await tester.pump(const Duration(milliseconds: 1100));
     final score = tester.widget<Text>(find.byKey(const Key('score-SCORE')));
     expect(score.data, '00010');
@@ -93,5 +93,44 @@ void main() {
     await tester.pump();
     expect(find.text('PAUSE'), findsOneWidget);
     expect(find.text('00000'), findsWidgets);
+  });
+
+  testWidgets('mode selector appears on ready screen', (tester) async {
+    await tester.pumpWidget(
+      HisscoreApp(highScoreStore: InMemoryHighScoreStore()),
+    );
+    await tester.pump();
+
+    // Mode selector should show the three modes.
+    expect(find.text('CLASSIC'), findsOneWidget);
+    expect(find.text('ADVENTURE'), findsOneWidget);
+    expect(find.text('ENDLESS'), findsOneWidget);
+    expect(find.text('SELECT MODE'), findsOneWidget);
+  });
+
+  testWidgets('can exit to menu to change mode from gameplay', (tester) async {
+    await tester.pumpWidget(
+      HisscoreApp(
+        highScoreStore: InMemoryHighScoreStore(),
+        engineFactory: () => SnakeEngine(
+          columns: 6,
+          rows: 6,
+          firstFoodDistance: 1,
+          random: Random(1),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('PLAY'));
+    await tester.pump();
+    expect(find.text('MENU'), findsOneWidget);
+
+    // Tap MENU while running
+    await tester.tap(find.text('MENU'));
+    await tester.pump();
+
+    // Returns to ready screen where mode selector is accessible
+    expect(find.text('SELECT MODE'), findsOneWidget);
+    expect(find.text('PLAY'), findsOneWidget);
   });
 }

@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hisscore/game/food_types.dart';
 import 'package:hisscore/game/snake_engine.dart';
 
 void main() {
@@ -9,12 +10,14 @@ void main() {
     int rows = 20,
     int firstFoodDistance = 4,
     int seed = 1,
+    GameMode mode = GameMode.classic,
   }) {
     return SnakeEngine(
       columns: columns,
       rows: rows,
       firstFoodDistance: firstFoodDistance,
       random: Random(seed),
+      mode: mode,
     );
   }
 
@@ -124,6 +127,7 @@ void main() {
   });
 
   test('speed increases every four apples', () {
+    // Verify the speed formula directly by manually eating apples.
     final game = SnakeEngine(
       columns: 20,
       rows: 20,
@@ -132,37 +136,144 @@ void main() {
       random: Random(2),
     );
     game.start();
-    var apples = 0;
-    var guard = 0;
-    while (apples < 4 && game.phase == GamePhase.running && guard < 400) {
-      game.queueTurn(_towardFood(game));
+
+    // Eat first apple (1 cell ahead at firstFoodDistance=1).
+    game.tick();
+    expect(game.justAte, isTrue);
+    // Speed doesn't change until 4 apples.
+    expect(game.tickInterval, const Duration(milliseconds: 140));
+
+    // Manually eat 3 more apples by placing food right in front of the head.
+    for (var i = 0; i < 3; i++) {
+      // Place an apple directly ahead.
+      game.foods.clear();
+      game.foods.add(FoodItem(
+        position: GridPoint(game.head.x + 1, game.head.y),
+        type: FoodType.apple,
+      ));
       game.tick();
-      if (game.justAte) {
-        apples += 1;
-      }
-      guard += 1;
+      expect(game.justAte, isTrue, reason: 'Apple ${i + 2} not eaten');
     }
-    expect(apples, 4);
+
+    // After 4 apples, speed should have decreased by 12ms.
+    expect(game.foodsEaten, 4);
     expect(game.tickInterval, const Duration(milliseconds: 128));
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: Game modes
+  // ═══════════════════════════════════════════════════
+
+  test('classic mode: wall collision ends game', () {
+    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.classic);
+    game.start();
+    // Head is at (2,2), move right → 3, 4, then wall.
+    game.tick(); // (3,2)
+    game.tick(); // (4,2)
+    game.tick(); // wall
+    expect(game.phase, GamePhase.gameOver);
+  });
+
+  test('endless mode: snake wraps around walls', () {
+    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.endless);
+    game.start();
+    // Head at (2,2), move right.
+    game.tick(); // (3,2)
+    game.tick(); // (4,2)
+    game.tick(); // wraps → (0,2)
+    expect(game.phase, GamePhase.running);
+    expect(game.head, const GridPoint(0, 2));
+  });
+
+  test('adventure mode starts with level 1 and no obstacles', () {
+    final game = engine(mode: GameMode.adventure);
+    expect(game.level, 1);
+    expect(game.obstacles, isEmpty);
+    expect(game.applesInLevel, 0);
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: Multi-food & power-ups
+  // ═══════════════════════════════════════════════════
+
+  test('foods list always contains at least one apple', () {
+    final game = engine();
+    expect(game.foods, isNotEmpty);
+    expect(game.foods.first.type, FoodType.apple);
+  });
+
+  test('shield allows passing through one wall', () {
+    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.classic);
+    game.start();
+    game.hasShield = true;
+    // Move right to the wall.
+    game.tick(); // (3,2)
+    game.tick(); // (4,2)
+    game.tick(); // would hit wall, but shield wraps → (0,2)
+    expect(game.phase, GamePhase.running);
+    expect(game.hasShield, false);
+    expect(game.head, const GridPoint(0, 2));
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: Combo system
+  // ═══════════════════════════════════════════════════
+
+  test('eating food within combo window builds combo multiplier', () {
+    final game = SnakeEngine(
+      columns: 20,
+      rows: 20,
+      firstFoodDistance: 1,
+      random: Random(42),
+    );
+    game.start();
+    // Eat the first apple (1 tick away).
+    game.tick();
+    expect(game.justAte, isTrue);
+    expect(game.comboCount, 1);
+    expect(game.comboMultiplier, 1.0);
+  });
+
+  test('combo resets after window expires', () {
+    final game = engine(firstFoodDistance: 20);
+    game.start();
+    // Move without eating for many ticks.
+    for (var i = 0; i < 15; i++) {
+      game.queueTurn(Direction.down);
+      game.tick();
+      game.queueTurn(Direction.right);
+      game.tick();
+      game.queueTurn(Direction.up);
+      game.tick();
+      game.queueTurn(Direction.right);
+      game.tick();
+      if (game.phase != GamePhase.running) break;
+    }
+    // Combo should stay at 0 since no food eaten in window.
+    expect(game.comboCount, 0);
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: Obstacles
+  // ═══════════════════════════════════════════════════
+
+  test('obstacle collision ends game in adventure mode', () {
+    final game = engine(mode: GameMode.adventure);
+    game.start();
+    // Place an obstacle right in front of the snake.
+    game.obstacles = {GridPoint(game.head.x + 1, game.head.y)};
+    game.tick();
+    expect(game.phase, GamePhase.gameOver);
+  });
+
+  test('shield protects from obstacle collision', () {
+    final game = engine(mode: GameMode.adventure);
+    game.start();
+    game.hasShield = true;
+    game.obstacles = {GridPoint(game.head.x + 1, game.head.y)};
+    game.tick();
+    expect(game.phase, GamePhase.running);
+    expect(game.hasShield, false);
   });
 }
 
-Direction _towardFood(SnakeEngine game) {
-  final dx = game.food.x - game.head.x;
-  final dy = game.food.y - game.head.y;
-  final options = <Direction>[
-    if (dx > 0) Direction.right,
-    if (dx < 0) Direction.left,
-    if (dy > 0) Direction.down,
-    if (dy < 0) Direction.up,
-  ];
-  for (final direction in options) {
-    if (direction != game.direction.opposite) {
-      return direction;
-    }
-  }
-  if (game.direction == Direction.left || game.direction == Direction.right) {
-    return game.head.y > 0 ? Direction.up : Direction.down;
-  }
-  return game.head.x > 0 ? Direction.left : Direction.right;
-}
