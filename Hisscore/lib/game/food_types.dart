@@ -15,7 +15,11 @@ enum FoodType {
   speedBurst,
 
   /// Shrink potion: snake loses up to 2 tail segments. Despawns.
-  shrink;
+  shrink,
+
+  /// Magnet: pulls every other food item one step closer each tick
+  /// for a short while. Despawns.
+  magnet;
 
   /// Whether eating this type causes the snake to grow by one segment.
   bool get growsSnake => this == FoodType.apple;
@@ -27,6 +31,7 @@ enum FoodType {
     FoodType.shield => 'SHIELD',
     FoodType.speedBurst => 'SPEED',
     FoodType.shrink => 'SHRINK',
+    FoodType.magnet => 'MAGNET',
   };
 }
 
