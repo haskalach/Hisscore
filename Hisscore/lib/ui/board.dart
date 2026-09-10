@@ -311,6 +311,42 @@ class SnakeBoardPainter extends CustomPainter {
           r * foodScale * 0.3,
           Paint()..color = RetroColors.shrinkPurple,
         );
+
+      case FoodType.magnet:
+        // Pink horseshoe magnet.
+        final s = r * foodScale;
+        final magnetPaint = Paint()
+          ..color = RetroColors.magnetPink
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = s * 0.32
+          ..strokeCap = StrokeCap.round;
+        final path = Path()
+          ..moveTo(center.dx - s * 0.55, center.dy - s * 0.6)
+          ..lineTo(center.dx - s * 0.55, center.dy + s * 0.15)
+          ..arcToPoint(
+            Offset(center.dx + s * 0.55, center.dy + s * 0.15),
+            radius: Radius.circular(s * 0.55),
+          )
+          ..lineTo(center.dx + s * 0.55, center.dy - s * 0.6);
+        canvas.drawPath(path, magnetPaint);
+        // Pole tips.
+        final tipPaint = Paint()..color = RetroColors.phosphorHot;
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset(center.dx - s * 0.55, center.dy - s * 0.72),
+            width: s * 0.34,
+            height: s * 0.26,
+          ),
+          tipPaint,
+        );
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset(center.dx + s * 0.55, center.dy - s * 0.72),
+            width: s * 0.34,
+            height: s * 0.26,
+          ),
+          tipPaint,
+        );
     }
 
     // Timed food: blink when about to expire.

@@ -551,17 +551,17 @@ class ModeSelector extends StatelessWidget {
           style: RetroText.pixel(size: 7, color: RetroColors.phosphorDim),
         ),
         const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          runSpacing: 6,
           children: [
-            for (var i = 0; i < GameMode.values.length; i++) ...[
-              if (i > 0) const SizedBox(width: 8),
+            for (final mode in GameMode.values)
               _ModeChip(
-                mode: GameMode.values[i],
-                isSelected: GameMode.values[i] == selected,
-                onTap: () => onChanged(GameMode.values[i]),
+                mode: mode,
+                isSelected: mode == selected,
+                onTap: () => onChanged(mode),
               ),
-            ],
           ],
         ),
         const SizedBox(height: 6),

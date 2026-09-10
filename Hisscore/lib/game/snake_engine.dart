@@ -31,18 +31,24 @@ enum GamePhase { ready, running, paused, gameOver }
 enum GameMode {
   classic,
   adventure,
-  endless;
+  endless,
+  hardcore,
+  zen;
 
   String get label => switch (this) {
     GameMode.classic => 'CLASSIC',
     GameMode.adventure => 'ADVENTURE',
     GameMode.endless => 'ENDLESS',
+    GameMode.hardcore => 'HARDCORE',
+    GameMode.zen => 'ZEN',
   };
 
   String get description => switch (this) {
     GameMode.classic => 'Original snake rules',
     GameMode.adventure => 'Levels with obstacles',
     GameMode.endless => 'Wrap walls, survive!',
+    GameMode.hardcore => 'No shields. 2x points. Deadly.',
+    GameMode.zen => 'No game over. Just vibes.',
   };
 }
 
@@ -144,6 +150,11 @@ class SnakeEngine {
   bool hasShield = false;
   bool speedBurstActive = false;
   int speedBurstTicksLeft = 0;
+  int magnetTicksLeft = 0;
+
+  /// Whether shields can currently save the snake. Hardcore mode makes
+  /// shields purely cosmetic/score fodder — nothing stops a crash.
+  bool get shieldActive => hasShield && mode != GameMode.hardcore;
 
   // ─── Tick tracking ────────────────────────────────
 
@@ -152,7 +163,15 @@ class SnakeEngine {
 
   // ─── Wrap mode ────────────────────────────────────
 
-  bool get wrapEnabled => mode == GameMode.endless;
+  bool get wrapEnabled => mode == GameMode.endless || mode == GameMode.zen;
+
+  /// Zen mode never ends the run on a collision — the snake just
+  /// glides through itself and any obstacle.
+  bool get isInvulnerable => mode == GameMode.zen;
+
+  /// Score multiplier applied to every point gain. Hardcore doubles
+  /// the risk/reward.
+  double get scoreMultiplier => mode == GameMode.hardcore ? 2.0 : 1.0;
 
   // ─── Convenience ──────────────────────────────────
 
@@ -188,6 +207,7 @@ class SnakeEngine {
     hasShield = false;
     speedBurstActive = false;
     speedBurstTicksLeft = 0;
+    magnetTicksLeft = 0;
 
     // Level
     level = 1;
@@ -261,7 +281,7 @@ class SnakeEngine {
     if (next.x < 0 || next.y < 0 || next.x >= columns || next.y >= rows) {
       if (wrapEnabled) {
         next = _wrap(next);
-      } else if (hasShield) {
+      } else if (shieldActive) {
         hasShield = false;
         next = _wrap(next);
       } else {
@@ -272,7 +292,9 @@ class SnakeEngine {
 
     // ── Obstacle collision ──
     if (obstacles.contains(next)) {
-      if (hasShield) {
+      if (isInvulnerable) {
+        // Pass straight through.
+      } else if (shieldActive) {
         hasShield = false;
       } else {
         phase = GamePhase.gameOver;
@@ -286,7 +308,7 @@ class SnakeEngine {
 
     // ── Self-collision ──
     final bodyToCheck = eating ? snake : snake.sublist(0, snake.length - 1);
-    if (bodyToCheck.contains(next)) {
+    if (!isInvulnerable && bodyToCheck.contains(next)) {
       phase = GamePhase.gameOver;
       return;
     }
@@ -326,6 +348,9 @@ class SnakeEngine {
     // ── Despawn timed foods ──
     foods.removeWhere((f) => f.isExpired(totalTicks));
 
+    // ── Magnet pull ──
+    _applyMagnet();
+
     // Ensure we always have at least one apple.
     _ensurePrimaryApple();
   }
@@ -347,32 +372,36 @@ class SnakeEngine {
         foodsEaten++;
         totalApplesEaten++;
         applesInLevel++;
-        final points = (pointsPerFood * comboMultiplier).round();
+        final points = (pointsPerFood * comboMultiplier * scoreMultiplier).round();
         score += points;
         _updateCombo();
         _checkSpeedIncrease();
         _checkLevelAdvance();
 
       case FoodType.star:
-        final points = (50 * comboMultiplier).round();
+        final points = (50 * comboMultiplier * scoreMultiplier).round();
         score += points;
         _updateCombo();
 
       case FoodType.shield:
         hasShield = true;
-        score += 5;
+        score += (5 * scoreMultiplier).round();
 
       case FoodType.speedBurst:
         speedBurstActive = true;
         speedBurstTicksLeft = 12;
-        score += 5;
+        score += (5 * scoreMultiplier).round();
         _recalculateSpeed();
 
       case FoodType.shrink:
-        score += 15;
+        score += (15 * scoreMultiplier).round();
         for (var i = 0; i < 2 && snake.length > 2; i++) {
           snake.removeLast();
         }
+
+      case FoodType.magnet:
+        magnetTicksLeft = 20;
+        score += (10 * scoreMultiplier).round();
     }
   }
 
@@ -410,6 +439,14 @@ class SnakeEngine {
     if (mode == GameMode.adventure) {
       final mult = LevelData.speedMultiplier(level);
       baseMs = (baseMs / mult).round().clamp(
+        minTick.inMilliseconds,
+        initialTick.inMilliseconds,
+      );
+    }
+
+    // Hardcore mode: always a little faster.
+    if (mode == GameMode.hardcore) {
+      baseMs = (baseMs * 0.85).round().clamp(
         minTick.inMilliseconds,
         initialTick.inMilliseconds,
       );
@@ -486,6 +523,7 @@ class SnakeEngine {
       FoodType.shield,
       FoodType.speedBurst,
       FoodType.shrink,
+      FoodType.magnet,
     ];
     final type = types[random.nextInt(types.length)];
     final pos = _spawnFood();
@@ -524,6 +562,39 @@ class SnakeEngine {
       return null;
     }
     return empty[random.nextInt(empty.length)];
+  }
+
+  // ═══════════════════════════════════════════════════
+  // Magnet
+  // ═══════════════════════════════════════════════════
+
+  /// Pulls every food item one grid step toward the head, once per
+  /// tick, while [magnetTicksLeft] is active. Never pulls a food onto
+  /// the snake, an obstacle, or another food.
+  void _applyMagnet() {
+    if (magnetTicksLeft <= 0) return;
+    magnetTicksLeft--;
+    foods = [for (final f in foods) _magnetStep(f)];
+  }
+
+  FoodItem _magnetStep(FoodItem item) {
+    final pos = item.position;
+    final dx = (head.x - pos.x).clamp(-1, 1);
+    final dy = (head.y - pos.y).clamp(-1, 1);
+    if (dx == 0 && dy == 0) return item;
+
+    final next = GridPoint(pos.x + dx, pos.y + dy);
+    final blocked = snake.contains(next) ||
+        obstacles.contains(next) ||
+        foods.any((other) => !identical(other, item) && other.position == next);
+    if (blocked) return item;
+
+    return FoodItem(
+      position: next,
+      type: item.type,
+      spawnTick: item.spawnTick,
+      lifetime: item.lifetime,
+    );
   }
 
   GridPoint _wrap(GridPoint p) {

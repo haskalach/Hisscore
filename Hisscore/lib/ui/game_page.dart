@@ -153,6 +153,7 @@ class _GamePageState extends State<GamePage>
       FoodType.shield => RetroColors.shieldCyan,
       FoodType.speedBurst => RetroColors.speedYellow,
       FoodType.shrink => RetroColors.shrinkPurple,
+      FoodType.magnet => RetroColors.magnetPink,
       _ => RetroColors.phosphor,
     };
     particleSystem.emitEat(cx, cy, color);

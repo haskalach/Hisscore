@@ -275,5 +275,73 @@ void main() {
     expect(game.phase, GamePhase.running);
     expect(game.hasShield, false);
   });
+
+  // ═══════════════════════════════════════════════════
+  // New: Hardcore mode
+  // ═══════════════════════════════════════════════════
+
+  test('hardcore mode doubles apple points', () {
+    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.hardcore);
+    game.start();
+    game.foods = [FoodItem(position: GridPoint(game.head.x + 1, game.head.y), type: FoodType.apple)];
+    game.tick();
+    expect(game.score, 20);
+  });
+
+  test('hardcore mode ignores shields on wall collision', () {
+    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.hardcore);
+    game.start();
+    game.hasShield = true;
+    for (var i = 0; i < 5; i++) {
+      game.tick();
+    }
+    expect(game.phase, GamePhase.gameOver);
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: Zen mode
+  // ═══════════════════════════════════════════════════
+
+  test('zen mode survives self-collision without ending', () {
+    final game = engine(mode: GameMode.zen);
+    game.start();
+    // Force a self-collision: snake heading right, feed it a tight loop.
+    game.queueTurn(Direction.up);
+    game.tick();
+    game.queueTurn(Direction.left);
+    game.tick();
+    game.queueTurn(Direction.down);
+    game.tick();
+    // Head now moves back into its own former path.
+    game.tick();
+    expect(game.phase, GamePhase.running);
+  });
+
+  test('zen mode wraps at walls instead of dying', () {
+    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.zen);
+    game.start();
+    for (var i = 0; i < 5; i++) {
+      game.tick();
+    }
+    expect(game.phase, GamePhase.running);
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: Magnet power-up
+  // ═══════════════════════════════════════════════════
+
+  test('magnet pulls other food toward the head each tick', () {
+    final game = engine(columns: 10, rows: 10, firstFoodDistance: 10);
+    game.start();
+    final farApple = GridPoint(game.head.x + 5, game.head.y);
+    game.foods = [
+      FoodItem(position: GridPoint(game.head.x + 1, game.head.y), type: FoodType.magnet),
+      FoodItem(position: farApple, type: FoodType.apple),
+    ];
+    game.tick();
+    expect(game.magnetTicksLeft, greaterThan(0));
+    final apple = game.foods.firstWhere((f) => f.type == FoodType.apple);
+    expect(apple.position.x, lessThan(farApple.x));
+  });
 }
 

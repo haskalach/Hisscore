@@ -19,6 +19,8 @@ abstract final class LevelData {
       7 => _cornerBlocks(cols, rows),
       8 => _twoHorizontalBars(cols, rows),
       9 => _diamond(cols, rows),
+      10 => _zigzag(cols, rows),
+      11 => _spiral(cols, rows),
       _ => _maze(level, cols, rows),
     };
   }
@@ -97,7 +99,60 @@ abstract final class LevelData {
     return points;
   }
 
-  // ─── Level 10+: Increasing maze-like obstacles ───
+  // ─── Level 10: Zigzag wall across the board ───
+
+  /// A single continuous diagonal wall that slopes up and down like a
+  /// lightning bolt (a triangle wave), two cells thick so it reads as
+  /// a real wall rather than a scatter of dots.
+  static Set<GridPoint> _zigzag(int cols, int rows) {
+    final amplitude = (rows ~/ 5).clamp(3, 5);
+    final midY = rows ~/ 2;
+    const period = 8;
+    final points = <GridPoint>{};
+    for (var x = 2; x < cols - 2; x++) {
+      final phase = (x % period) / period;
+      final triangle = phase < 0.5 ? phase * 2 : 2 - phase * 2;
+      final y = (midY - amplitude + (triangle * amplitude * 2))
+          .round()
+          .clamp(1, rows - 3);
+      points.add(GridPoint(x, y));
+      points.add(GridPoint(x, y + 1));
+    }
+    return points;
+  }
+
+  // ─── Level 11: Inward spiral maze ───
+
+  /// Concentric square rings, each with a single-cell doorway, so the
+  /// snake has to thread its way inward through the spiral.
+  static Set<GridPoint> _spiral(int cols, int rows) {
+    final points = <GridPoint>{};
+    var top = 1;
+    var bottom = rows - 2;
+    var left = 1;
+    var right = cols - 2;
+    var ring = 0;
+    while (top < bottom && left < right && ring < 3) {
+      for (var x = left; x <= right; x++) {
+        points.add(GridPoint(x, top));
+        points.add(GridPoint(x, bottom));
+      }
+      final doorY = top + (bottom - top) ~/ 2;
+      for (var y = top; y <= bottom; y++) {
+        if (y == doorY) continue; // doorway into the next ring
+        points.add(GridPoint(left, y));
+        points.add(GridPoint(right, y));
+      }
+      top += 3;
+      bottom -= 3;
+      left += 3;
+      right -= 3;
+      ring++;
+    }
+    return points;
+  }
+
+  // ─── Level 12+: Increasing maze-like obstacles ───
 
   static Set<GridPoint> _maze(int level, int cols, int rows) {
     final points = <GridPoint>{};

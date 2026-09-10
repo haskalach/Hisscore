@@ -33,6 +33,7 @@ abstract final class RetroColors {
   static const shieldCyan = Color(0xFF00E5FF);
   static const speedYellow = Color(0xFFFFEA00);
   static const shrinkPurple = Color(0xFFCE93D8);
+  static const magnetPink = Color(0xFFFF6EC7);
 
   // ─── Gameplay ──────────────────────────────────────
   static const combo = Color(0xFFFFD740);
