@@ -278,26 +278,18 @@ class SnakeBoardPainter extends CustomPainter {
         canvas.drawPath(path, shieldPaint);
 
       case FoodType.speedBurst:
-        // Yellow lightning bolt.
+        // Yellow lightning bolt (classic zigzag polygon).
         final boltPaint = Paint()..color = RetroColors.speedYellow;
         final s = r * foodScale;
         final path = Path()
-          ..moveTo(center.dx - s * 0.2, center.dy - s)
-          ..lineTo(center.dx + s * 0.5, center.dy - s * 0.1)
-          ..lineTo(center.dx, center.dy)
-          ..lineTo(center.dx + s * 0.3, center.dy)
-          ..lineTo(center.dx - s * 0.4, center.dy + s)
-          ..lineTo(center.dx, center.dy * 0.01 + center.dy)
+          ..moveTo(center.dx + s * 0.15, center.dy - s)
+          ..lineTo(center.dx - s * 0.35, center.dy + s * 0.1)
+          ..lineTo(center.dx + s * 0.05, center.dy + s * 0.1)
+          ..lineTo(center.dx - s * 0.15, center.dy + s)
+          ..lineTo(center.dx + s * 0.35, center.dy - s * 0.1)
+          ..lineTo(center.dx - s * 0.05, center.dy - s * 0.1)
           ..close();
         canvas.drawPath(path, boltPaint);
-        // Simplified: draw as a small rect for reliability.
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromCenter(center: center, width: s, height: s * 1.4),
-            Radius.circular(s * 0.2),
-          ),
-          boltPaint,
-        );
 
       case FoodType.shrink:
         // Purple ring.
