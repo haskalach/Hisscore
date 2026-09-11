@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../game/snake_engine.dart';
+
 /// Phosphor CRT palette for the Hisscore cabinet.
 abstract final class RetroColors {
   // ─── Background & cabinet ──────────────────────────
@@ -34,16 +36,25 @@ abstract final class RetroColors {
   static const speedYellow = Color(0xFFFFEA00);
   static const shrinkPurple = Color(0xFFCE93D8);
   static const magnetPink = Color(0xFFFF6EC7);
+  static const zenBlue = Color(0xFF7EC8FF);
 
   // ─── Gameplay ──────────────────────────────────────
   static const combo = Color(0xFFFFD740);
   static const obstacle = Color(0xFF3A3028);
   static const obstacleRim = Color(0xFF5A4A3C);
   static const levelFlash = Color(0xAAFFFFFF);
+}
 
-  // ─── Mode selector ────────────────────────────────
-  static const modeActive = Color(0xFFFFB000);
-  static const modeInactive = Color(0xFF4A4030);
+/// Per-mode accent color for UI badges/chips, so each mode reads as its
+/// own risk level at a glance (green=safe, red=danger, blue=calm, ...).
+extension GameModeUi on GameMode {
+  Color get accentColor => switch (this) {
+    GameMode.classic => RetroColors.phosphor,
+    GameMode.adventure => RetroColors.amber,
+    GameMode.endless => RetroColors.shieldCyan,
+    GameMode.hardcore => RetroColors.cherry,
+    GameMode.zen => RetroColors.zenBlue,
+  };
 }
 
 abstract final class RetroText {
