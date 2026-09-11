@@ -1,3 +1,4 @@
+import 'dart:math' show cos, pi, sin;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -360,9 +361,9 @@ class SnakeBoardPainter extends CustomPainter {
     const points = 5;
     for (var i = 0; i < points * 2; i++) {
       final r = i.isEven ? radius : radius * 0.45;
-      final angle = (i * 3.14159265 / points) - 3.14159265 / 2;
-      final x = center.dx + r * _cos(angle);
-      final y = center.dy + r * _sin(angle);
+      final angle = (i * pi / points) - pi / 2;
+      final x = center.dx + r * cos(angle);
+      final y = center.dy + r * sin(angle);
       if (i == 0) {
         path.moveTo(x, y);
       } else {
@@ -371,26 +372,6 @@ class SnakeBoardPainter extends CustomPainter {
     }
     path.close();
     canvas.drawPath(path, Paint()..color = color);
-  }
-
-  static double _cos(double a) {
-    // Simple cos approximation to avoid dart:math import in painter.
-    // Use Taylor series or just import. Let's just use the values directly.
-    // Actually, since we need precision, let's compute manually.
-    // cos(a) = 1 - a^2/2 + a^4/24 - ...
-    // Better to just do it properly:
-    final normalized = a % (2 * 3.14159265);
-    return _cosTable(normalized);
-  }
-
-  static double _sin(double a) {
-    return _cos(a - 3.14159265 / 2);
-  }
-
-  static double _cosTable(double a) {
-    // Use Horner form for cos Taylor series (sufficient for our use).
-    final a2 = a * a;
-    return 1.0 - a2 / 2.0 + a2 * a2 / 24.0 - a2 * a2 * a2 / 720.0;
   }
 
   void _drawEyes(Canvas canvas, Rect head, double cellW) {
