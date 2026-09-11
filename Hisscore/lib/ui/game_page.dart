@@ -1,11 +1,17 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../game/daily_challenge.dart';
 import '../game/food_types.dart';
 import '../game/high_score_store.dart';
+import '../game/notification_service.dart';
+import '../game/review_prompter.dart';
 import '../game/snake_engine.dart';
+import '../game/sound_manager.dart';
 import 'board.dart';
 import 'controls.dart';
 import 'particles.dart';
@@ -49,6 +55,20 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   final List<Timer> _labelTimers = [];
   int _labelSeq = 0;
 
+  // Sound, reviews, reminders, daily challenge.
+  final soundManager = SoundManager();
+  final reviewPrompter = ReviewPrompter();
+  final notificationService = NotificationService();
+  DailyState dailyState = const DailyState();
+  bool isDailyRun = false;
+
+  int get _dailyDayNumber => DailyChallenge.dayNumber(DateTime.now());
+
+  bool get _playedDailyToday => DailyChallenge.playedToday(
+    lastPlayedKey: dailyState.lastPlayedKey,
+    today: DateTime.now(),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -62,17 +82,21 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 2000),
     )..repeat(reverse: true);
     unawaited(_loadHighScore());
+    unawaited(soundManager.init());
+    unawaited(notificationService.init());
   }
 
   Future<void> _loadHighScore() async {
     final value = await widget.highScoreStore.load();
     final scores = await widget.highScoreStore.loadTopScores();
     final loadedStats = await widget.highScoreStore.loadStats();
+    final loadedDaily = await widget.highScoreStore.loadDailyState();
     if (!mounted) return;
     setState(() {
       highScore = value;
       topScores = scores;
       stats = loadedStats;
+      dailyState = loadedDaily;
     });
   }
 
@@ -86,6 +110,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
       highScore = engine.score;
       newHighScore = true;
       await widget.highScoreStore.save(engine.score);
+      unawaited(reviewPrompter.maybePrompt(gamesPlayed: stats.gamesPlayed));
     }
   }
 
@@ -109,6 +134,38 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
         stats = loadedStats;
       });
     }
+    if (isDailyRun) {
+      await _persistDailyResult();
+    }
+  }
+
+  /// Updates the daily-challenge streak after a daily run ends, and — the
+  /// first time a daily run is completed — asks for notification
+  /// permission and schedules a "keep your streak" reminder for tomorrow.
+  Future<void> _persistDailyResult() async {
+    final today = DateTime.now();
+    final alreadyPlayedToday = _playedDailyToday;
+    final newStreak = DailyChallenge.nextStreak(
+      lastPlayedKey: dailyState.lastPlayedKey,
+      previousStreak: dailyState.currentStreak,
+      today: today,
+    );
+    final newState = DailyState(
+      lastPlayedKey: DailyChallenge.dateKey(today),
+      lastScore: alreadyPlayedToday
+          ? max(engine.score, dailyState.lastScore)
+          : engine.score,
+      currentStreak: newStreak,
+      bestStreak: max(newStreak, dailyState.bestStreak),
+    );
+    await widget.highScoreStore.saveDailyState(newState);
+    if (mounted) {
+      setState(() => dailyState = newState);
+    }
+    if (!alreadyPlayedToday) {
+      await notificationService.requestPermission();
+      await notificationService.scheduleStreakReminder(streak: newStreak);
+    }
   }
 
   void _armTicker() {
@@ -124,6 +181,11 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
         if (engine.justAte && engine.lastEatenFood != null) {
           final pos = engine.lastEatenFood!.position;
           _emitEatParticles(pos);
+          unawaited(
+            engine.lastEatenFood!.type == FoodType.apple
+                ? soundManager.playEat()
+                : soundManager.playBonus(),
+          );
           final gained = engine.score - scoreBefore;
           if (gained > 0) {
             _spawnLabel('+$gained', pos, RetroColors.phosphorHot);
@@ -153,6 +215,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
             big: true,
           );
           shakeController.shake(intensity: 3);
+          unawaited(soundManager.playLevelUp());
         }
 
         // Game over.
@@ -160,6 +223,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
           ticker?.cancel();
           _emitDeathParticles();
           shakeController.shake(intensity: 8);
+          unawaited(soundManager.playGameOver());
           unawaited(_persistGameEnd());
         }
       });
@@ -259,6 +323,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
               widget.engineFactory?.call() ?? SnakeEngine(mode: selectedMode);
         }
         engine.mode = selectedMode;
+        isDailyRun = false;
       }
       particleSystem.clear();
       floatingLabels.clear();
@@ -293,10 +358,46 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
       engine.reset();
       engine.phase = GamePhase.ready;
       newHighScore = false;
+      isDailyRun = false;
       particleSystem.clear();
       floatingLabels.clear();
       focusNode.requestFocus();
     });
+  }
+
+  /// Starts today's daily challenge: a Classic run seeded so every
+  /// player sees the same food layout on the same calendar day.
+  void _startDailyChallenge() {
+    setState(() {
+      ticker?.cancel();
+      final seed = DailyChallenge.seedForDay(_dailyDayNumber);
+      engine = SnakeEngine(mode: GameMode.classic, random: Random(seed));
+      selectedMode = GameMode.classic;
+      isDailyRun = true;
+      newHighScore = false;
+      particleSystem.clear();
+      floatingLabels.clear();
+      engine.start();
+      startedAt = DateTime.now();
+      focusNode.requestFocus();
+    });
+    _armTicker();
+  }
+
+  /// Shares the current run's result via the platform share sheet.
+  Future<void> _shareScore() async {
+    final text = isDailyRun
+        ? 'HISSCORE Daily #$_dailyDayNumber — Score ${engine.score} 🐍🍎\n'
+              'Streak: ${dailyState.currentStreak} day${dailyState.currentStreak == 1 ? '' : 's'}\n'
+              'Can you beat it?'
+        : 'HISSCORE — ${engine.mode.label} — Score ${engine.score}'
+              '${engine.mode == GameMode.adventure ? ' (Level ${engine.level})' : ''} 🐍\n'
+              'Can you beat it?';
+    try {
+      await SharePlus.instance.share(ShareParams(text: text));
+    } catch (e) {
+      debugPrint('Share failed: $e');
+    }
   }
 
   @override
@@ -305,6 +406,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     for (final t in _labelTimers) {
       t.cancel();
     }
+    unawaited(soundManager.dispose());
     pulse.dispose();
     titleGlow.dispose();
     focusNode.dispose();
@@ -429,16 +531,34 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
             // ── Title ──
             _buildTitle(),
             const SizedBox(height: 4),
-            Text(
-              engine.phase == GamePhase.ready
-                  ? 'RETRO SNAKE'
-                  : engine.mode.label,
-              style: RetroText.pixel(
-                size: 7,
-                color: engine.phase == GamePhase.ready
-                    ? RetroColors.phosphorDim
-                    : engine.mode.accentColor,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  engine.phase == GamePhase.ready
+                      ? 'RETRO SNAKE'
+                      : engine.mode.label,
+                  style: RetroText.pixel(
+                    size: 7,
+                    color: engine.phase == GamePhase.ready
+                        ? RetroColors.phosphorDim
+                        : engine.mode.accentColor,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: () {
+                    final next = !soundManager.enabled;
+                    unawaited(soundManager.setEnabled(next));
+                    setState(() {});
+                  },
+                  child: Icon(
+                    soundManager.enabled ? Icons.volume_up : Icons.volume_off,
+                    size: 12,
+                    color: RetroColors.phosphorDim,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
 
@@ -647,6 +767,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                     engine.reset();
                     engine.phase = GamePhase.ready;
                     newHighScore = false;
+                    isDailyRun = false;
                     particleSystem.clear();
                     floatingLabels.clear();
                     focusNode.requestFocus();
@@ -654,6 +775,12 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                 },
                 topScores: topScores,
                 stats: stats,
+                isDailyRun: isDailyRun,
+                dailyDayNumber: _dailyDayNumber,
+                dailyState: dailyState,
+                playedDailyToday: _playedDailyToday,
+                onStartDaily: _startDailyChallenge,
+                onShare: _shareScore,
                 onResume: _onPrimary,
                 onExitToMenu: _onExitToMenu,
               ),
@@ -770,6 +897,12 @@ class _Overlay extends StatelessWidget {
     required this.onModeChanged,
     required this.topScores,
     required this.stats,
+    required this.isDailyRun,
+    required this.dailyDayNumber,
+    required this.dailyState,
+    required this.playedDailyToday,
+    required this.onStartDaily,
+    required this.onShare,
     this.onResume,
     this.onExitToMenu,
   });
@@ -783,6 +916,12 @@ class _Overlay extends StatelessWidget {
   final ValueChanged<GameMode> onModeChanged;
   final List<ScoreEntry> topScores;
   final GameStats stats;
+  final bool isDailyRun;
+  final int dailyDayNumber;
+  final DailyState dailyState;
+  final bool playedDailyToday;
+  final VoidCallback onStartDaily;
+  final VoidCallback onShare;
   final VoidCallback? onResume;
   final VoidCallback? onExitToMenu;
 
@@ -831,6 +970,13 @@ class _Overlay extends StatelessWidget {
                     const SizedBox(height: 12),
                     _TopScoresList(scores: topScores),
                   ],
+                  const SizedBox(height: 16),
+                  _DailyChallengeCard(
+                    dayNumber: dailyDayNumber,
+                    dailyState: dailyState,
+                    playedToday: playedDailyToday,
+                    onStart: onStartDaily,
+                  ),
                 ],
 
                 // ── Paused: mode selector (picking a new mode restarts) ──
@@ -860,6 +1006,13 @@ class _Overlay extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   _ScoreBreakdown(engine: engine),
+                  if (isDailyRun) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'DAILY #$dailyDayNumber  ·  STREAK ${dailyState.currentStreak}',
+                      style: RetroText.pixel(size: 7, color: RetroColors.zenBlue),
+                    ),
+                  ],
                   if (newHighScore) ...[
                     const SizedBox(height: 10),
                     Text(
@@ -867,6 +1020,12 @@ class _Overlay extends StatelessWidget {
                       style: RetroText.pixel(size: 10, color: RetroColors.food),
                     ),
                   ],
+                  const SizedBox(height: 12),
+                  SecondaryArcadeButton(
+                    label: 'SHARE SCORE',
+                    color: RetroColors.zenBlue,
+                    onPressed: onShare,
+                  ),
                   if (topScores.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     _TopScoresList(scores: topScores),
@@ -975,6 +1134,68 @@ class _StatsRow extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+// ─── Daily challenge card (ready screen) ─────────────
+
+class _DailyChallengeCard extends StatelessWidget {
+  const _DailyChallengeCard({
+    required this.dayNumber,
+    required this.dailyState,
+    required this.playedToday,
+    required this.onStart,
+  });
+
+  final int dayNumber;
+  final DailyState dailyState;
+  final bool playedToday;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: RetroColors.zenBlue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: RetroColors.zenBlue.withValues(alpha: 0.5),
+          width: 1.2,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'DAILY CHALLENGE #$dayNumber',
+            style: RetroText.pixel(size: 7, color: RetroColors.zenBlue),
+          ),
+          if (dailyState.currentStreak > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              'STREAK ${dailyState.currentStreak} DAY'
+              '${dailyState.currentStreak == 1 ? '' : 'S'}'
+              '${dailyState.bestStreak > dailyState.currentStreak ? '  ·  BEST ${dailyState.bestStreak}' : ''}',
+              style: RetroText.pixel(size: 6, color: RetroColors.metal),
+            ),
+          ],
+          if (playedToday) ...[
+            const SizedBox(height: 4),
+            Text(
+              "TODAY'S SCORE ${dailyState.lastScore}",
+              style: RetroText.pixel(size: 6, color: RetroColors.phosphorDim),
+            ),
+          ],
+          const SizedBox(height: 8),
+          SecondaryArcadeButton(
+            label: playedToday ? 'PLAY DAILY AGAIN' : 'PLAY DAILY',
+            color: RetroColors.zenBlue,
+            onPressed: onStart,
+          ),
+        ],
+      ),
     );
   }
 }
