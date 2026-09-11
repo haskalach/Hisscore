@@ -32,6 +32,11 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   shared_preferences: ^2.5.3
+  audioplayers: ^6.8.1
+  share_plus: ^13.3.0
+  in_app_review: ^2.0.12
+  flutter_local_notifications: ^22.3.0
+  timezone: ^0.11.1
 
 dev_dependencies:
   flutter_test:
@@ -79,6 +84,12 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/sfx/eat.wav
+    - assets/sfx/bonus.wav
+    - assets/sfx/levelup.wav
+    - assets/sfx/gameover.wav
 
   fonts:
     - family: PressStart2P

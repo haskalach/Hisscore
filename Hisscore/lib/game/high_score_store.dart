@@ -56,6 +56,37 @@ class GameStats {
   );
 }
 
+// ─── Daily challenge state ───────────────────────────
+
+class DailyState {
+  const DailyState({
+    this.lastPlayedKey,
+    this.lastScore = 0,
+    this.currentStreak = 0,
+    this.bestStreak = 0,
+  });
+
+  /// dateKey (e.g. "2026-03-14") of the last completed daily run.
+  final String? lastPlayedKey;
+  final int lastScore;
+  final int currentStreak;
+  final int bestStreak;
+
+  Map<String, dynamic> toJson() => {
+    'lastPlayedKey': lastPlayedKey,
+    'lastScore': lastScore,
+    'currentStreak': currentStreak,
+    'bestStreak': bestStreak,
+  };
+
+  factory DailyState.fromJson(Map<String, dynamic> json) => DailyState(
+    lastPlayedKey: json['lastPlayedKey'] as String?,
+    lastScore: json['lastScore'] as int? ?? 0,
+    currentStreak: json['currentStreak'] as int? ?? 0,
+    bestStreak: json['bestStreak'] as int? ?? 0,
+  );
+}
+
 // ─── Abstract store ─────────────────────────────────
 
 abstract class HighScoreStore {
@@ -65,6 +96,8 @@ abstract class HighScoreStore {
   Future<void> saveScoreEntry(ScoreEntry entry);
   Future<GameStats> loadStats();
   Future<void> updateStats(SnakeEngine engine);
+  Future<DailyState> loadDailyState();
+  Future<void> saveDailyState(DailyState state);
 }
 
 // ─── In-memory (testing) ────────────────────────────
@@ -75,6 +108,7 @@ class InMemoryHighScoreStore implements HighScoreStore {
   int value;
   final List<ScoreEntry> _scores = [];
   final GameStats _stats = GameStats();
+  DailyState _daily = const DailyState();
 
   @override
   Future<int> load() async => value;
@@ -113,6 +147,12 @@ class InMemoryHighScoreStore implements HighScoreStore {
       _stats.bestCombo = engine.bestCombo;
     }
   }
+
+  @override
+  Future<DailyState> loadDailyState() async => _daily;
+
+  @override
+  Future<void> saveDailyState(DailyState state) async => _daily = state;
 }
 
 // ─── SharedPreferences (production) ─────────────────
@@ -123,6 +163,7 @@ class SharedPreferencesHighScoreStore implements HighScoreStore {
   static const defaultKey = 'hisscore.high_score';
   static const _topScoresKey = 'hisscore.top_scores';
   static const _statsKey = 'hisscore.stats';
+  static const _dailyKey = 'hisscore.daily_state';
 
   final String key;
   SharedPreferences? _prefs;
@@ -199,5 +240,23 @@ class SharedPreferencesHighScoreStore implements HighScoreStore {
       stats.bestCombo = engine.bestCombo;
     }
     await _prefs!.setString(_statsKey, jsonEncode(stats.toJson()));
+  }
+
+  @override
+  Future<DailyState> loadDailyState() async {
+    await init();
+    final raw = _prefs!.getString(_dailyKey);
+    if (raw == null) return const DailyState();
+    try {
+      return DailyState.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return const DailyState();
+    }
+  }
+
+  @override
+  Future<void> saveDailyState(DailyState state) async {
+    await init();
+    await _prefs!.setString(_dailyKey, jsonEncode(state.toJson()));
   }
 }
