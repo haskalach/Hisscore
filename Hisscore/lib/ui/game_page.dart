@@ -48,6 +48,11 @@ class _GamePageState extends State<GamePage>
   // Mode selection.
   GameMode selectedMode = GameMode.classic;
 
+  // Floating popup text (score gains, combos, level-ups).
+  final List<_FloatingLabel> floatingLabels = [];
+  final List<Timer> _labelTimers = [];
+  int _labelSeq = 0;
+
   @override
   void initState() {
     super.initState();
@@ -100,13 +105,26 @@ class _GamePageState extends State<GamePage>
     if (engine.phase != GamePhase.running) return;
     ticker = Timer.periodic(engine.tickInterval, (_) {
       if (!mounted) return;
+      final scoreBefore = engine.score;
       setState(() {
         engine.tick();
 
-        // Eat particles.
+        // Eat particles + floating popup.
         if (engine.justAte && engine.lastEatenFood != null) {
           final pos = engine.lastEatenFood!.position;
           _emitEatParticles(pos);
+          final gained = engine.score - scoreBefore;
+          if (gained > 0) {
+            _spawnLabel('+$gained', pos, RetroColors.phosphorHot);
+          }
+          if (engine.comboCount > 1) {
+            _spawnLabel(
+              'COMBO x${engine.comboMultiplier.toStringAsFixed(1)}',
+              GridPoint(pos.x, pos.y - 1),
+              RetroColors.combo,
+              big: true,
+            );
+          }
         }
 
         // Speed changed → re-arm ticker.
@@ -115,9 +133,15 @@ class _GamePageState extends State<GamePage>
           _armTicker();
         }
 
-        // Level advanced overlay (adventure mode).
+        // Level advanced banner.
         if (engine.levelJustAdvanced) {
-          // Brief pause on level advance.
+          _spawnLabel(
+            'LEVEL ${engine.level}!',
+            GridPoint(engine.columns ~/ 2, engine.rows ~/ 2),
+            RetroColors.amber,
+            big: true,
+          );
+          shakeController.shake(intensity: 3);
         }
 
         // Game over.
@@ -129,6 +153,30 @@ class _GamePageState extends State<GamePage>
         }
       });
     });
+  }
+
+  /// Spawns a floating text popup at a grid position; it rises and
+  /// fades, then removes itself.
+  void _spawnLabel(String text, GridPoint gridPos, Color color, {bool big = false}) {
+    const boardSize = 380.0;
+    final cellW = boardSize / engine.columns;
+    final cellH = boardSize / engine.rows;
+    final id = _labelSeq++;
+    floatingLabels.add(_FloatingLabel(
+      id: id,
+      text: text,
+      x: gridPos.x * cellW + cellW / 2,
+      y: gridPos.y * cellH + cellH / 2,
+      color: color,
+      big: big,
+    ));
+    late final Timer timer;
+    timer = Timer(const Duration(milliseconds: 700), () {
+      _labelTimers.remove(timer);
+      if (!mounted) return;
+      setState(() => floatingLabels.removeWhere((l) => l.id == id));
+    });
+    _labelTimers.add(timer);
   }
 
   void _emitEatParticles(GridPoint pos) {
@@ -195,6 +243,7 @@ class _GamePageState extends State<GamePage>
         engine.mode = selectedMode;
       }
       particleSystem.clear();
+      floatingLabels.clear();
       engine.start();
       startedAt = DateTime.now();
       focusNode.requestFocus();
@@ -227,6 +276,7 @@ class _GamePageState extends State<GamePage>
       engine.phase = GamePhase.ready;
       newHighScore = false;
       particleSystem.clear();
+      floatingLabels.clear();
       focusNode.requestFocus();
     });
   }
@@ -234,6 +284,9 @@ class _GamePageState extends State<GamePage>
   @override
   void dispose() {
     ticker?.cancel();
+    for (final t in _labelTimers) {
+      t.cancel();
+    }
     pulse.dispose();
     titleGlow.dispose();
     focusNode.dispose();
@@ -529,6 +582,8 @@ class _GamePageState extends State<GamePage>
                 onSwipe: _onTurn,
               ),
             ),
+            for (final label in floatingLabels)
+              _FloatingLabelView(key: ValueKey(label.id), label: label),
             if (engine.phase != GamePhase.running)
               _Overlay(
                 phase: engine.phase,
@@ -558,6 +613,69 @@ class _GamePageState extends State<GamePage>
           ],
         );
       },
+    );
+  }
+}
+
+// ─── Floating popup text (score gains, combos, level-ups) ──
+
+class _FloatingLabel {
+  _FloatingLabel({
+    required this.id,
+    required this.text,
+    required this.x,
+    required this.y,
+    required this.color,
+    this.big = false,
+  });
+
+  final int id;
+  final String text;
+  final double x;
+  final double y;
+  final Color color;
+  final bool big;
+}
+
+class _FloatingLabelView extends StatelessWidget {
+  const _FloatingLabelView({super.key, required this.label});
+
+  final _FloatingLabel label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: label.x - 60,
+      top: label.y - 20,
+      width: 120,
+      child: IgnorePointer(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 700),
+          curve: Curves.easeOut,
+          builder: (context, t, _) {
+            return Opacity(
+              opacity: (1 - t).clamp(0.0, 1.0),
+              child: Transform.translate(
+                offset: Offset(0, -24 * t),
+                child: Transform.scale(
+                  scale: 0.8 + (t < 0.25 ? t * 4 * 0.3 : 0.3),
+                  child: Center(
+                    child: Text(
+                      label.text,
+                      textAlign: TextAlign.center,
+                      style: RetroText.pixel(
+                        size: label.big ? 10 : 7,
+                        color: label.color,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }
