@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../game/food_types.dart';
 import '../game/snake_engine.dart';
 import 'theme.dart';
 
@@ -21,17 +22,10 @@ class ArcadeDpad extends StatelessWidget {
         gradient: const RadialGradient(
           center: Alignment(-0.2, -0.2),
           radius: 1.0,
-          colors: [
-            Color(0xFF281E16),
-            Color(0xFF16100A),
-            Color(0xFF0C0805),
-          ],
+          colors: [Color(0xFF281E16), Color(0xFF16100A), Color(0xFF0C0805)],
           stops: [0.0, 0.65, 1.0],
         ),
-        border: Border.all(
-          color: RetroColors.cabinetRim,
-          width: 2.0,
-        ),
+        border: Border.all(color: RetroColors.cabinetRim, width: 2.0),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.7),
@@ -75,7 +69,9 @@ class ArcadeDpad extends StatelessWidget {
               label: 'Up',
               width: 34,
               height: 36,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(7),
+              ),
               onTurn: onTurn,
             ),
           ),
@@ -89,7 +85,9 @@ class ArcadeDpad extends StatelessWidget {
               label: 'Down',
               width: 34,
               height: 36,
-              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(7)),
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(7),
+              ),
               onTurn: onTurn,
             ),
           ),
@@ -103,7 +101,9 @@ class ArcadeDpad extends StatelessWidget {
               label: 'Left',
               width: 36,
               height: 34,
-              borderRadius: const BorderRadius.horizontal(left: Radius.circular(7)),
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(7),
+              ),
               onTurn: onTurn,
             ),
           ),
@@ -117,7 +117,9 @@ class ArcadeDpad extends StatelessWidget {
               label: 'Right',
               width: 36,
               height: 34,
-              borderRadius: const BorderRadius.horizontal(right: Radius.circular(7)),
+              borderRadius: const BorderRadius.horizontal(
+                right: Radius.circular(7),
+              ),
               onTurn: onTurn,
             ),
           ),
@@ -132,10 +134,7 @@ class ArcadeDpad extends StatelessWidget {
                 gradient: const RadialGradient(
                   center: Alignment(-0.25, -0.25),
                   radius: 0.8,
-                  colors: [
-                    Color(0xFF382A1C),
-                    Color(0xFF1E150E),
-                  ],
+                  colors: [Color(0xFF382A1C), Color(0xFF1E150E)],
                 ),
                 border: Border.all(
                   color: RetroColors.cabinetRim.withValues(alpha: 0.7),
@@ -157,7 +156,9 @@ class ArcadeDpad extends StatelessWidget {
                     shape: BoxShape.circle,
                     color: const Color(0xFF120C08),
                     border: Border.all(
-                      color: RetroColors.cabinetHighlight.withValues(alpha: 0.35),
+                      color: RetroColors.cabinetHighlight.withValues(
+                        alpha: 0.35,
+                      ),
                       width: 0.8,
                     ),
                   ),
@@ -252,14 +253,8 @@ class _ArcadeDpadArmState extends State<_ArcadeDpadArm>
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: isPressed
-                        ? const [
-                            Color(0xFF4E3A28),
-                            Color(0xFF2C1F14),
-                          ]
-                        : const [
-                            Color(0xFF3C2E1F),
-                            Color(0xFF241A12),
-                          ],
+                        ? const [Color(0xFF4E3A28), Color(0xFF2C1F14)]
+                        : const [Color(0xFF3C2E1F), Color(0xFF241A12)],
                   ),
                   border: Border.all(
                     color: isPressed
@@ -285,7 +280,9 @@ class _ArcadeDpadArmState extends State<_ArcadeDpadArm>
                 child: Center(
                   child: Icon(
                     widget.icon,
-                    color: isPressed ? RetroColors.phosphorHot : RetroColors.amber,
+                    color: isPressed
+                        ? RetroColors.phosphorHot
+                        : RetroColors.amber,
                     size: 28,
                     shadows: [
                       Shadow(
@@ -376,13 +373,12 @@ class _ArcadeActionButtonState extends State<ArcadeActionButton>
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFF5A4432),
-                        Color(0xFF281C12),
-                      ],
+                      colors: [Color(0xFF5A4432), Color(0xFF281C12)],
                     ),
                     border: Border.all(
-                      color: RetroColors.cabinetHighlight.withValues(alpha: 0.5),
+                      color: RetroColors.cabinetHighlight.withValues(
+                        alpha: 0.5,
+                      ),
                       width: 1,
                     ),
                     boxShadow: [
@@ -419,10 +415,7 @@ class _ArcadeActionButtonState extends State<ArcadeActionButton>
                     ),
                     child: Text(
                       widget.label,
-                      style: RetroText.pixel(
-                        size: 9.5,
-                        color: Colors.white,
-                      ),
+                      style: RetroText.pixel(size: 9.5, color: Colors.white),
                     ),
                   ),
                 ),
@@ -479,10 +472,7 @@ class SecondaryArcadeButton extends StatelessWidget {
                 ),
               ],
             ),
-            child: Text(
-              label,
-              style: RetroText.pixel(size: 7.5, color: color),
-            ),
+            child: Text(label, style: RetroText.pixel(size: 7.5, color: color)),
           ),
         ),
       ),
@@ -587,16 +577,17 @@ class _ModeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = mode.accentColor;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: isSelected ? RetroColors.modeActive : Colors.transparent,
+          color: isSelected ? accent : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
           border: Border.all(
-            color: isSelected ? RetroColors.modeActive : RetroColors.modeInactive,
+            color: isSelected ? accent : accent.withValues(alpha: 0.55),
             width: 1.5,
           ),
         ),
@@ -604,10 +595,54 @@ class _ModeChip extends StatelessWidget {
           mode.label,
           style: RetroText.pixel(
             size: 6,
-            color: isSelected ? RetroColors.cabinet : RetroColors.phosphorDim,
+            color: isSelected ? RetroColors.cabinet : accent,
           ),
         ),
       ),
+    );
+  }
+}
+
+// ─── Food legend (ready screen) ─────────────────────
+
+/// Small key showing what each collectible on the board does, so a
+/// first-time player isn't guessing what the colored shapes mean.
+class FoodLegend extends StatelessWidget {
+  const FoodLegend({super.key});
+
+  static const _entries = [
+    (FoodType.apple, RetroColors.food),
+    (FoodType.star, RetroColors.starGold),
+    (FoodType.shield, RetroColors.shieldCyan),
+    (FoodType.speedBurst, RetroColors.speedYellow),
+    (FoodType.shrink, RetroColors.shrinkPurple),
+    (FoodType.magnet, RetroColors.magnetPink),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 10,
+      runSpacing: 4,
+      children: [
+        for (final (type, color) in _entries)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                type.label,
+                style: RetroText.pixel(size: 5, color: RetroColors.metal),
+              ),
+            ],
+          ),
+      ],
     );
   }
 }

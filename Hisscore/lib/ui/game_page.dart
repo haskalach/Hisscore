@@ -13,11 +13,7 @@ import 'screen_shake.dart';
 import 'theme.dart';
 
 class GamePage extends StatefulWidget {
-  const GamePage({
-    super.key,
-    required this.highScoreStore,
-    this.engineFactory,
-  });
+  const GamePage({super.key, required this.highScoreStore, this.engineFactory});
 
   final HighScoreStore highScoreStore;
   final SnakeEngine Function()? engineFactory;
@@ -26,8 +22,7 @@ class GamePage extends StatefulWidget {
   State<GamePage> createState() => _GamePageState();
 }
 
-class _GamePageState extends State<GamePage>
-    with TickerProviderStateMixin {
+class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   late SnakeEngine engine;
 
   // Animation controllers.
@@ -38,6 +33,7 @@ class _GamePageState extends State<GamePage>
   int highScore = 0;
   bool newHighScore = false;
   List<ScoreEntry> topScores = [];
+  GameStats stats = GameStats();
   DateTime? startedAt;
   final focusNode = FocusNode();
 
@@ -71,14 +67,21 @@ class _GamePageState extends State<GamePage>
   Future<void> _loadHighScore() async {
     final value = await widget.highScoreStore.load();
     final scores = await widget.highScoreStore.loadTopScores();
+    final loadedStats = await widget.highScoreStore.loadStats();
     if (!mounted) return;
     setState(() {
       highScore = value;
       topScores = scores;
+      stats = loadedStats;
     });
   }
 
+  /// Zen mode never ends and scores climb forever — it doesn't compete
+  /// on the leaderboard or count toward the high score.
+  bool get _countsForLeaderboard => engine.mode != GameMode.zen;
+
   Future<void> _persistHighScore() async {
+    if (!_countsForLeaderboard) return;
     if (engine.score > highScore) {
       highScore = engine.score;
       newHighScore = true;
@@ -88,15 +91,23 @@ class _GamePageState extends State<GamePage>
 
   Future<void> _persistGameEnd() async {
     await _persistHighScore();
-    await widget.highScoreStore.saveScoreEntry(ScoreEntry(
-      score: engine.score,
-      level: engine.level,
-      mode: engine.mode.label,
-    ));
+    if (_countsForLeaderboard) {
+      await widget.highScoreStore.saveScoreEntry(
+        ScoreEntry(
+          score: engine.score,
+          level: engine.level,
+          mode: engine.mode.label,
+        ),
+      );
+    }
     await widget.highScoreStore.updateStats(engine);
     final scores = await widget.highScoreStore.loadTopScores();
+    final loadedStats = await widget.highScoreStore.loadStats();
     if (mounted) {
-      setState(() => topScores = scores);
+      setState(() {
+        topScores = scores;
+        stats = loadedStats;
+      });
     }
   }
 
@@ -157,19 +168,26 @@ class _GamePageState extends State<GamePage>
 
   /// Spawns a floating text popup at a grid position; it rises and
   /// fades, then removes itself.
-  void _spawnLabel(String text, GridPoint gridPos, Color color, {bool big = false}) {
+  void _spawnLabel(
+    String text,
+    GridPoint gridPos,
+    Color color, {
+    bool big = false,
+  }) {
     const boardSize = 380.0;
     final cellW = boardSize / engine.columns;
     final cellH = boardSize / engine.rows;
     final id = _labelSeq++;
-    floatingLabels.add(_FloatingLabel(
-      id: id,
-      text: text,
-      x: gridPos.x * cellW + cellW / 2,
-      y: gridPos.y * cellH + cellH / 2,
-      color: color,
-      big: big,
-    ));
+    floatingLabels.add(
+      _FloatingLabel(
+        id: id,
+        text: text,
+        x: gridPos.x * cellW + cellW / 2,
+        y: gridPos.y * cellH + cellH / 2,
+        color: color,
+        big: big,
+      ),
+    );
     late final Timer timer;
     timer = Timer(const Duration(milliseconds: 700), () {
       _labelTimers.remove(timer);
@@ -237,8 +255,8 @@ class _GamePageState extends State<GamePage>
           engine.phase == GamePhase.ready) {
         // Apply selected mode.
         if (engine.mode != selectedMode) {
-          engine = widget.engineFactory?.call() ??
-              SnakeEngine(mode: selectedMode);
+          engine =
+              widget.engineFactory?.call() ?? SnakeEngine(mode: selectedMode);
         }
         engine.mode = selectedMode;
       }
@@ -353,23 +371,32 @@ class _GamePageState extends State<GamePage>
         autofocus: true,
         child: Scaffold(
           backgroundColor: RetroColors.voidBg,
-          body: SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return Center(
-                  child: FittedBox(
-                    fit: BoxFit.contain,
-                    child: SizedBox(
-                      width: 440,
-                      height: 800,
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: _buildCabinet(),
+          body: DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(0, -0.2),
+                radius: 1.2,
+                colors: [Color(0xFF10130F), RetroColors.voidBg],
+              ),
+            ),
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return Center(
+                    child: FittedBox(
+                      fit: BoxFit.contain,
+                      child: SizedBox(
+                        width: 440,
+                        height: 800,
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: _buildCabinet(),
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -383,11 +410,7 @@ class _GamePageState extends State<GamePage>
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF201810),
-            RetroColors.cabinet,
-            Color(0xFF181010),
-          ],
+          colors: [Color(0xFF201810), RetroColors.cabinet, Color(0xFF181010)],
         ),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: RetroColors.cabinetRim, width: 5),
@@ -407,10 +430,14 @@ class _GamePageState extends State<GamePage>
             _buildTitle(),
             const SizedBox(height: 4),
             Text(
-              'RETRO SNAKE',
+              engine.phase == GamePhase.ready
+                  ? 'RETRO SNAKE'
+                  : engine.mode.label,
               style: RetroText.pixel(
                 size: 7,
-                color: RetroColors.phosphorDim,
+                color: engine.phase == GamePhase.ready
+                    ? RetroColors.phosphorDim
+                    : engine.mode.accentColor,
               ),
             ),
             const SizedBox(height: 12),
@@ -430,10 +457,7 @@ class _GamePageState extends State<GamePage>
                 gradient: const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFF140E0A),
-                    Color(0xFF0C0704),
-                  ],
+                  colors: [Color(0xFF140E0A), Color(0xFF0C0704)],
                 ),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
@@ -459,7 +483,10 @@ class _GamePageState extends State<GamePage>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      ArcadeActionButton(label: actionLabel, onPressed: _onPrimary),
+                      ArcadeActionButton(
+                        label: actionLabel,
+                        onPressed: _onPrimary,
+                      ),
                       if (engine.phase != GamePhase.ready) ...[
                         const SizedBox(width: 10),
                         SecondaryArcadeButton(
@@ -560,7 +587,17 @@ class _GamePageState extends State<GamePage>
             color: RetroColors.combo,
           ),
         if (engine.hasShield)
-          const _MiniStat(label: '', value: '🛡', color: RetroColors.shieldCyan),
+          const _MiniStat(
+            label: '',
+            value: '🛡',
+            color: RetroColors.shieldCyan,
+          ),
+        if (engine.magnetTicksLeft > 0)
+          const _MiniStat(
+            label: '',
+            value: '🧲',
+            color: RetroColors.magnetPink,
+          ),
         ScoreReadout(label: 'HI', value: highScore, highlight: true),
       ],
     );
@@ -593,20 +630,30 @@ class _GamePageState extends State<GamePage>
                 blinkOn: pulse.value > 0.4,
                 selectedMode: selectedMode,
                 onModeChanged: (mode) {
+                  // Tapping the mode that's already active shouldn't
+                  // wipe a paused run — only an actual mode change
+                  // resets the game.
+                  if (mode == selectedMode &&
+                      engine.phase == GamePhase.paused) {
+                    return;
+                  }
                   setState(() {
                     selectedMode = mode;
                     ticker?.cancel();
-                    engine = widget.engineFactory?.call() ??
+                    engine =
+                        widget.engineFactory?.call() ??
                         SnakeEngine(mode: selectedMode);
                     engine.mode = selectedMode;
                     engine.reset();
                     engine.phase = GamePhase.ready;
                     newHighScore = false;
                     particleSystem.clear();
+                    floatingLabels.clear();
                     focusNode.requestFocus();
                   });
                 },
                 topScores: topScores,
+                stats: stats,
                 onResume: _onPrimary,
                 onExitToMenu: _onExitToMenu,
               ),
@@ -722,6 +769,7 @@ class _Overlay extends StatelessWidget {
     required this.selectedMode,
     required this.onModeChanged,
     required this.topScores,
+    required this.stats,
     this.onResume,
     this.onExitToMenu,
   });
@@ -734,6 +782,7 @@ class _Overlay extends StatelessWidget {
   final GameMode selectedMode;
   final ValueChanged<GameMode> onModeChanged;
   final List<ScoreEntry> topScores;
+  final GameStats stats;
   final VoidCallback? onResume;
   final VoidCallback? onExitToMenu;
 
@@ -765,21 +814,37 @@ class _Overlay extends StatelessWidget {
                   ),
                 ),
 
-                // ── Ready: mode selector ──
+                // ── Ready: mode selector, food legend, stats, best runs ──
                 if (phase == GamePhase.ready) ...[
                   const SizedBox(height: 16),
                   ModeSelector(
                     selected: selectedMode,
                     onChanged: onModeChanged,
                   ),
+                  const SizedBox(height: 14),
+                  const FoodLegend(),
+                  if (stats.gamesPlayed > 0) ...[
+                    const SizedBox(height: 12),
+                    _StatsRow(stats: stats),
+                  ],
+                  if (topScores.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _TopScoresList(scores: topScores),
+                  ],
                 ],
 
-                // ── Paused: Direct mode selector ──
+                // ── Paused: mode selector (picking a new mode restarts) ──
                 if (phase == GamePhase.paused) ...[
                   const SizedBox(height: 16),
                   ModeSelector(
                     selected: selectedMode,
                     onChanged: onModeChanged,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'PICKING A NEW MODE RESTARTS THE RUN',
+                    textAlign: TextAlign.center,
+                    style: RetroText.pixel(size: 5, color: RetroColors.metal),
                   ),
                 ],
 
@@ -799,10 +864,7 @@ class _Overlay extends StatelessWidget {
                     const SizedBox(height: 10),
                     Text(
                       'NEW HISCORE',
-                      style: RetroText.pixel(
-                        size: 10,
-                        color: RetroColors.food,
-                      ),
+                      style: RetroText.pixel(size: 10, color: RetroColors.food),
                     ),
                   ],
                   if (topScores.isNotEmpty) ...[
@@ -838,7 +900,10 @@ class _ScoreBreakdown extends StatelessWidget {
       if (engine.mode == GameMode.adventure)
         _BreakdownItem('LEVEL', engine.level.toString()),
       if (engine.bestCombo > 1)
-        _BreakdownItem('BEST COMBO', '×${(1.0 + (engine.bestCombo - 1) * 0.5).toStringAsFixed(1)}'),
+        _BreakdownItem(
+          'BEST COMBO',
+          '×${(1.0 + (engine.bestCombo - 1) * 0.5).toStringAsFixed(1)}',
+        ),
     ];
 
     return Row(
@@ -851,10 +916,7 @@ class _ScoreBreakdown extends StatelessWidget {
             children: [
               Text(
                 items[i].label,
-                style: RetroText.pixel(
-                  size: 6,
-                  color: RetroColors.phosphorDim,
-                ),
+                style: RetroText.pixel(size: 6, color: RetroColors.phosphorDim),
               ),
               const SizedBox(height: 2),
               Text(
@@ -873,6 +935,48 @@ class _BreakdownItem {
   const _BreakdownItem(this.label, this.value);
   final String label;
   final String value;
+}
+
+// ─── Lifetime stats (ready screen) ──────────────────
+
+class _StatsRow extends StatelessWidget {
+  const _StatsRow({required this.stats});
+
+  final GameStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final comboMult = stats.bestCombo <= 1
+        ? 1.0
+        : 1.0 + (stats.bestCombo - 1) * 0.5;
+    final items = [
+      _BreakdownItem('GAMES', stats.gamesPlayed.toString()),
+      _BreakdownItem('APPLES', stats.totalApples.toString()),
+      _BreakdownItem('BEST COMBO', '×${comboMult.toStringAsFixed(1)}'),
+    ];
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const SizedBox(width: 16),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                items[i].label,
+                style: RetroText.pixel(size: 5, color: RetroColors.metal),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                items[i].value,
+                style: RetroText.pixel(size: 7, color: RetroColors.phosphorDim),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 // ─── Top 5 leaderboard ──────────────────────────────
