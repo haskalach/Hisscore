@@ -99,54 +99,74 @@ abstract final class LevelData {
     return points;
   }
 
-  // ─── Level 10: Zigzag wall across the board ───
+  /// Fills an axis-aligned rectangle of grid cells (clipped to a safe
+  /// inset from the board edge). Used to build blocky, solid obstacle
+  /// shapes instead of thin one-cell lines.
+  static void _fillRect(Set<GridPoint> points, int x, int y, int w, int h) {
+    for (var dx = 0; dx < w; dx++) {
+      for (var dy = 0; dy < h; dy++) {
+        points.add(GridPoint(x + dx, y + dy));
+      }
+    }
+  }
 
-  /// A single continuous diagonal wall that slopes up and down like a
-  /// lightning bolt (a triangle wave), two cells thick so it reads as
-  /// a real wall rather than a scatter of dots.
+  // ─── Level 10: Zigzag of solid blocks ───
+
+  /// A staircase of solid rectangular blocks alternating high and low,
+  /// like brick chunks stepping across the board.
   static Set<GridPoint> _zigzag(int cols, int rows) {
-    final amplitude = (rows ~/ 5).clamp(3, 5);
-    final midY = rows ~/ 2;
-    const period = 8;
     final points = <GridPoint>{};
-    for (var x = 2; x < cols - 2; x++) {
-      final phase = (x % period) / period;
-      final triangle = phase < 0.5 ? phase * 2 : 2 - phase * 2;
-      final y = (midY - amplitude + (triangle * amplitude * 2))
-          .round()
-          .clamp(1, rows - 3);
-      points.add(GridPoint(x, y));
-      points.add(GridPoint(x, y + 1));
+    const blockW = 3;
+    const blockH = 3;
+    final amplitude = (rows ~/ 5).clamp(2, 4);
+    final midY = rows ~/ 2;
+    var stepUp = true;
+    var x = 2;
+    while (x + blockW < cols - 2) {
+      final y = (stepUp ? midY - amplitude : midY + amplitude)
+          .clamp(1, rows - blockH - 1);
+      _fillRect(points, x, y, blockW, blockH);
+      x += blockW + 2;
+      stepUp = !stepUp;
     }
     return points;
   }
 
-  // ─── Level 11: Inward spiral maze ───
+  // ─── Level 11: Inward spiral maze of thick block walls ───
 
-  /// Concentric square rings, each with a single-cell doorway, so the
-  /// snake has to thread its way inward through the spiral.
+  /// Concentric square rings built from solid 2-cell-thick block walls,
+  /// each with a wide doorway, so the snake threads inward through the
+  /// spiral corridor.
   static Set<GridPoint> _spiral(int cols, int rows) {
     final points = <GridPoint>{};
+    const thickness = 2;
+    const step = thickness + 3;
     var top = 1;
     var bottom = rows - 2;
     var left = 1;
     var right = cols - 2;
     var ring = 0;
-    while (top < bottom && left < right && ring < 3) {
-      for (var x = left; x <= right; x++) {
-        points.add(GridPoint(x, top));
-        points.add(GridPoint(x, bottom));
-      }
+    while (bottom - top > step && right - left > step && ring < 2) {
+      final width = right - left + 1;
+      // Top and bottom bands (full width).
+      _fillRect(points, left, top, width, thickness);
+      _fillRect(points, left, bottom - thickness + 1, width, thickness);
+
+      // Left and right bands, leaving a 3-cell door centered vertically.
       final doorY = top + (bottom - top) ~/ 2;
-      for (var y = top; y <= bottom; y++) {
-        if (y == doorY) continue; // doorway into the next ring
-        points.add(GridPoint(left, y));
-        points.add(GridPoint(right, y));
+      var y = top + thickness;
+      while (y <= bottom - thickness) {
+        if ((y - doorY).abs() > 1) {
+          _fillRect(points, left, y, thickness, 1);
+          _fillRect(points, right - thickness + 1, y, thickness, 1);
+        }
+        y++;
       }
-      top += 3;
-      bottom -= 3;
-      left += 3;
-      right -= 3;
+
+      top += step;
+      bottom -= step;
+      left += step;
+      right -= step;
       ring++;
     }
     return points;
