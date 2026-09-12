@@ -16,7 +16,10 @@ Future<void> main(List<String> args) async {
       request.response.headers.contentType = _contentType(ext);
       // This serves a directory that gets overwritten by every rebuild —
       // never let the browser cache a stale bundle across runs.
-      request.response.headers.set('Cache-Control', 'no-store, must-revalidate');
+      request.response.headers.set(
+        'Cache-Control',
+        'no-store, must-revalidate',
+      );
       await request.response.addStream(file.openRead());
     } else {
       request.response.statusCode = HttpStatus.notFound;

@@ -15,18 +15,27 @@ void main() {
   Directory('assets/sfx').createSync(recursive: true);
 
   _write('eat', _tones([_Tone(880, 60, _Wave.square)]));
-  _write('bonus', _tones([_Tone(660, 50, _Wave.square), _Tone(990, 70, _Wave.square)]));
-  _write('levelup', _tones([
-    _Tone(523, 60, _Wave.square),
-    _Tone(659, 60, _Wave.square),
-    _Tone(784, 60, _Wave.square),
-    _Tone(1047, 110, _Wave.square),
-  ]));
-  _write('gameover', _tones([
-    _Tone(392, 100, _Wave.sine),
-    _Tone(330, 100, _Wave.sine),
-    _Tone(262, 220, _Wave.sine),
-  ]));
+  _write(
+    'bonus',
+    _tones([_Tone(660, 50, _Wave.square), _Tone(990, 70, _Wave.square)]),
+  );
+  _write(
+    'levelup',
+    _tones([
+      _Tone(523, 60, _Wave.square),
+      _Tone(659, 60, _Wave.square),
+      _Tone(784, 60, _Wave.square),
+      _Tone(1047, 110, _Wave.square),
+    ]),
+  );
+  _write(
+    'gameover',
+    _tones([
+      _Tone(392, 100, _Wave.sine),
+      _Tone(330, 100, _Wave.sine),
+      _Tone(262, 220, _Wave.sine),
+    ]),
+  );
 
   stdout.writeln('Wrote assets/sfx/*.wav');
 }
