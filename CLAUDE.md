@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working conventions
+
+Keep output minimal — this burns real tokens:
+
+- Don't dump full command output (`flutter test`, `flutter analyze`,
+  `flutter build`, `git log`, etc.) into responses; run with `tail`/grep
+  for the relevant lines, or just state pass/fail and the error if any.
+- Don't paste full file contents back after a Read/Edit/Write unless the
+  user needs to review them — the tool result already confirms the
+  change.
+- Summarize instead of narrating every tool call; report outcomes, not
+  process.
+- Prefer targeted `flutter test path/to/file.dart` over the whole suite
+  while iterating; run the full suite once before considering something
+  done.
+
 ## Product
 
 Hisscore is a single Flutter app (retro Snake) that lives in `Hisscore/`.
@@ -109,14 +125,17 @@ implementations must be kept in sync when adding a new persisted field.
 
 ### Crash reporting
 
-`lib/game/crash_reporter.dart` defines the same real/fake-implementation
-pattern (`CrashReporter` → `LocalCrashReporter` / `NoopCrashReporter`).
-There is deliberately no third-party crash SDK (no Firebase/Sentry
-dependency) — `LocalCrashReporter` just keeps the last N crashes in
-`SharedPreferences` as a seam a real reporter could later replace.
-`installCrashHandlers()` is called first thing in `main()`, before
-`runApp`, wiring both `FlutterError.onError` and
-`PlatformDispatcher.instance.onError`.
+`lib/game/crash_reporter.dart` defines the interface/implementation
+pattern (`CrashReporter` → `LocalCrashReporter` / `NoopCrashReporter`);
+`LocalCrashReporter` keeps the last N crashes in `SharedPreferences` so
+there's always an on-device trace, independent of any off-device
+reporter. `lib/game/sentry_crash_reporter.dart` adds `SentryCrashReporter`
+(wraps `LocalCrashReporter` and also forwards to Sentry) plus
+`initCrashReporting()`, which is opt-in: `main.dart` reads `SENTRY_DSN`
+from `--dart-define` and only initializes Sentry when it's non-empty,
+otherwise falling back to local-only reporting. `installCrashHandlers()`
+is called first, before `runApp`, wiring both `FlutterError.onError` and
+`PlatformDispatcher.instance.onError` to whichever reporter was chosen.
 
 ### UI layer
 

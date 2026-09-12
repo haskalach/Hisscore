@@ -97,3 +97,15 @@ storeFile=<absolute path to upload-keystore.jks>
 
 The build picks it up automatically. Prefer `flutter build appbundle`
 for the Play Store; `--split-per-abi` gives smaller APKs for sideloading.
+
+## Crash reporting
+
+Crashes are always kept on-device (`lib/game/crash_reporter.dart`). To
+also send them to Sentry, pass a DSN at build/run time:
+
+```bash
+flutter run --dart-define=SENTRY_DSN=<your dsn>
+```
+
+No DSN means no Sentry calls at all — this is opt-in, never on by
+default.
