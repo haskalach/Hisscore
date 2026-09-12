@@ -48,11 +48,7 @@ class ScreenShakeController extends ChangeNotifier {
 
 /// Wraps a [child] and applies a random offset when the [controller] shakes.
 class ScreenShake extends StatelessWidget {
-  const ScreenShake({
-    super.key,
-    required this.controller,
-    required this.child,
-  });
+  const ScreenShake({super.key, required this.controller, required this.child});
 
   final ScreenShakeController controller;
   final Widget child;

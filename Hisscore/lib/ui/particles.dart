@@ -51,16 +51,18 @@ class ParticleSystem {
     for (var i = 0; i < count; i++) {
       final angle = _random.nextDouble() * 2 * pi;
       final speed = 60 + _random.nextDouble() * 140;
-      _particles.add(Particle(
-        x: cx,
-        y: cy,
-        vx: cos(angle) * speed,
-        vy: sin(angle) * speed,
-        color: color,
-        maxLife: 0.35 + _random.nextDouble() * 0.25,
-        size: 2.0 + _random.nextDouble() * 2.5,
-        gravity: 80,
-      ));
+      _particles.add(
+        Particle(
+          x: cx,
+          y: cy,
+          vx: cos(angle) * speed,
+          vy: sin(angle) * speed,
+          color: color,
+          maxLife: 0.35 + _random.nextDouble() * 0.25,
+          size: 2.0 + _random.nextDouble() * 2.5,
+          gravity: 80,
+        ),
+      );
     }
   }
 
@@ -69,32 +71,40 @@ class ParticleSystem {
     for (var i = 0; i < count; i++) {
       final angle = _random.nextDouble() * 2 * pi;
       final speed = 80 + _random.nextDouble() * 200;
-      _particles.add(Particle(
-        x: cx,
-        y: cy,
-        vx: cos(angle) * speed,
-        vy: sin(angle) * speed,
-        color: Color.lerp(color, const Color(0xFFFFB000), _random.nextDouble() * 0.5)!,
-        maxLife: 0.5 + _random.nextDouble() * 0.4,
-        size: 2.5 + _random.nextDouble() * 3.5,
-        gravity: 120,
-      ));
+      _particles.add(
+        Particle(
+          x: cx,
+          y: cy,
+          vx: cos(angle) * speed,
+          vy: sin(angle) * speed,
+          color: Color.lerp(
+            color,
+            const Color(0xFFFFB000),
+            _random.nextDouble() * 0.5,
+          )!,
+          maxLife: 0.5 + _random.nextDouble() * 0.4,
+          size: 2.5 + _random.nextDouble() * 3.5,
+          gravity: 120,
+        ),
+      );
     }
   }
 
   /// Faint shimmer behind the snake head each frame.
   void emitTrail(double cx, double cy, Color color) {
     if (_random.nextDouble() > 0.4) return; // Only 40% of frames
-    _particles.add(Particle(
-      x: cx + (_random.nextDouble() - 0.5) * 4,
-      y: cy + (_random.nextDouble() - 0.5) * 4,
-      vx: (_random.nextDouble() - 0.5) * 20,
-      vy: (_random.nextDouble() - 0.5) * 20,
-      color: color,
-      maxLife: 0.25 + _random.nextDouble() * 0.15,
-      size: 1.5 + _random.nextDouble(),
-      gravity: 0,
-    ));
+    _particles.add(
+      Particle(
+        x: cx + (_random.nextDouble() - 0.5) * 4,
+        y: cy + (_random.nextDouble() - 0.5) * 4,
+        vx: (_random.nextDouble() - 0.5) * 20,
+        vy: (_random.nextDouble() - 0.5) * 20,
+        color: color,
+        maxLife: 0.25 + _random.nextDouble() * 0.15,
+        size: 1.5 + _random.nextDouble(),
+        gravity: 0,
+      ),
+    );
   }
 
   /// Combo text sparkle at a point.
@@ -102,16 +112,18 @@ class ParticleSystem {
     for (var i = 0; i < count; i++) {
       final angle = _random.nextDouble() * 2 * pi;
       final speed = 40 + _random.nextDouble() * 80;
-      _particles.add(Particle(
-        x: cx,
-        y: cy,
-        vx: cos(angle) * speed,
-        vy: sin(angle) * speed,
-        color: const Color(0xFFFFD700),
-        maxLife: 0.3 + _random.nextDouble() * 0.2,
-        size: 1.5 + _random.nextDouble() * 1.5,
-        gravity: 0,
-      ));
+      _particles.add(
+        Particle(
+          x: cx,
+          y: cy,
+          vx: cos(angle) * speed,
+          vy: sin(angle) * speed,
+          color: const Color(0xFFFFD700),
+          maxLife: 0.3 + _random.nextDouble() * 0.2,
+          size: 1.5 + _random.nextDouble() * 1.5,
+          gravity: 0,
+        ),
+      );
     }
   }
 
@@ -139,8 +151,7 @@ class ParticleSystem {
   void paint(Canvas canvas) {
     for (final p in _particles) {
       final opacity = p.lifeFraction;
-      final paint = Paint()
-        ..color = p.color.withValues(alpha: opacity * 0.85);
+      final paint = Paint()..color = p.color.withValues(alpha: opacity * 0.85);
       canvas.drawCircle(
         Offset(p.x, p.y),
         p.size * (0.4 + opacity * 0.6),

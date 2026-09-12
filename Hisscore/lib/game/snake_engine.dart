@@ -414,7 +414,8 @@ class SnakeEngine {
         foodsEaten++;
         totalApplesEaten++;
         applesInLevel++;
-        final points = (pointsPerFood * comboMultiplier * scoreMultiplier).round();
+        final points = (pointsPerFood * comboMultiplier * scoreMultiplier)
+            .round();
         score += points;
         _updateCombo();
         _checkSpeedIncrease();
@@ -604,9 +605,7 @@ class SnakeEngine {
 
   void _maybeSpawnBonusFood() {
     if (foods.length >= 3) return;
-    final chance = mode == GameMode.adventure
-        ? 0.25 + level * 0.02
-        : 0.18;
+    final chance = mode == GameMode.adventure ? 0.25 + level * 0.02 : 0.18;
     if (random.nextDouble() >= chance) return;
 
     final types = [
@@ -619,12 +618,14 @@ class SnakeEngine {
     final type = types[random.nextInt(types.length)];
     final pos = _spawnFood();
     if (pos != null) {
-      foods.add(FoodItem(
-        position: pos,
-        type: type,
-        spawnMs: elapsedMs,
-        lifetimeMs: bonusFoodLifetimeMs,
-      ));
+      foods.add(
+        FoodItem(
+          position: pos,
+          type: type,
+          spawnMs: elapsedMs,
+          lifetimeMs: bonusFoodLifetimeMs,
+        ),
+      );
     }
   }
 
@@ -692,7 +693,8 @@ class SnakeEngine {
     if (dx == 0 && dy == 0) return item;
 
     final next = GridPoint(pos.x + dx, pos.y + dy);
-    final blocked = snake.contains(next) ||
+    final blocked =
+        snake.contains(next) ||
         obstacles.contains(next) ||
         foods.any((other) => !identical(other, item) && other.position == next);
     if (blocked) return item;

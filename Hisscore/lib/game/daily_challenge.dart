@@ -23,7 +23,11 @@ abstract final class DailyChallenge {
   /// as the shareable "Daily #N" label and as the RNG seed, so every
   /// player on the same day sees the same board.
   static int dayNumber(DateTime date) {
-    final today = DateTime.utc(date.toUtc().year, date.toUtc().month, date.toUtc().day);
+    final today = DateTime.utc(
+      date.toUtc().year,
+      date.toUtc().month,
+      date.toUtc().day,
+    );
     return today.difference(epoch).inDays + 1;
   }
 
@@ -49,7 +53,10 @@ abstract final class DailyChallenge {
   }
 
   /// Whether the daily challenge has already been completed today.
-  static bool playedToday({required String? lastPlayedKey, required DateTime today}) {
+  static bool playedToday({
+    required String? lastPlayedKey,
+    required DateTime today,
+  }) {
     return lastPlayedKey == dateKey(today);
   }
 }
