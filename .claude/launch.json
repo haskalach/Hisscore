@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hisscore-web",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": [
+        "/c",
+        "cd /d D:\\Desktop\\projects\\hisscore\\Hisscore\\build\\web && C:\\flutter\\bin\\cache\\dart-sdk\\bin\\dart.exe D:\\Desktop\\projects\\hisscore\\Hisscore\\tool\\static_server.dart 8766"
+      ],
+      "port": 8766
+    }
+  ]
+}
