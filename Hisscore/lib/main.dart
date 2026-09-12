@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'game/high_score_store.dart';
 import 'game/snake_engine.dart';
@@ -7,6 +8,15 @@ import 'ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // The play grid is shaped to the screen when a run starts, so turning
+  // the device mid-game would paint a tall grid into a wide box and
+  // stretch every cell. Portrait is the game's shape anyway.
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
   final store = SharedPreferencesHighScoreStore();
   await store.init();
   runApp(HisscoreApp(highScoreStore: store));

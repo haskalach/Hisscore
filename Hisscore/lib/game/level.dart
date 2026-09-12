@@ -123,8 +123,10 @@ abstract final class LevelData {
     var stepUp = true;
     var x = 2;
     while (x + blockW < cols - 2) {
-      final y = (stepUp ? midY - amplitude : midY + amplitude)
-          .clamp(1, rows - blockH - 1);
+      final y = (stepUp ? midY - amplitude : midY + amplitude).clamp(
+        1,
+        rows - blockH - 1,
+      );
       _fillRect(points, x, y, blockW, blockH);
       x += blockW + 2;
       stepUp = !stepUp;
@@ -177,15 +179,19 @@ abstract final class LevelData {
   static Set<GridPoint> _maze(int level, int cols, int rows) {
     final points = <GridPoint>{};
 
+    // Too cramped to place a bar and still leave lanes around it. The
+    // shipped grid is never this small, but the bounds below invert on
+    // a narrow board and clamp() throws when they do.
+    if (cols < 5 || rows < 5) return points;
+
     // Horizontal bar segments – more segments at higher levels.
     final segments = (level - 7).clamp(2, 6);
-    final barLen = (cols ~/ 4).clamp(3, cols ~/ 3);
+    final longestBar = cols - 2;
+    final barLen = (cols ~/ 4).clamp(1, longestBar);
 
     for (var i = 0; i < segments; i++) {
       final y = ((i + 1) * rows / (segments + 1)).round().clamp(2, rows - 3);
-      final xStart = (i.isEven)
-          ? (cols ~/ 6)
-          : (cols - cols ~/ 6 - barLen);
+      final xStart = (i.isEven) ? (cols ~/ 6) : (cols - cols ~/ 6 - barLen);
       for (var x = xStart; x < xStart + barLen && x < cols - 1; x++) {
         points.add(GridPoint(x, y));
       }
@@ -209,8 +215,15 @@ abstract final class LevelData {
         }
       }
     }
-    return raw.where((p) =>
-      p.x >= 0 && p.x < cols && p.y >= 0 && p.y < rows && !danger.contains(p),
-    ).toSet();
+    return raw
+        .where(
+          (p) =>
+              p.x >= 0 &&
+              p.x < cols &&
+              p.y >= 0 &&
+              p.y < rows &&
+              !danger.contains(p),
+        )
+        .toSet();
   }
 }
