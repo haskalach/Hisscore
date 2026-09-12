@@ -133,4 +133,64 @@ void main() {
     expect(find.text('SELECT MODE'), findsOneWidget);
     expect(find.text('PLAY'), findsOneWidget);
   });
+
+  testWidgets('a slow drag on the board turns the snake', (tester) async {
+    await tester.pumpWidget(
+      HisscoreApp(
+        highScoreStore: InMemoryHighScoreStore(),
+        engineFactory: () => SnakeEngine(random: Random(1)),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('PLAY'));
+    await tester.pump();
+
+    // A deliberate, slow drag — no flick velocity at all.
+    await tester.drag(
+      find.byType(SnakeBoard),
+      const Offset(0, 40),
+      touchSlopY: 0,
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 240));
+
+    expect(_painterOf(tester).engine.direction, Direction.down);
+  });
+
+  testWidgets('one gesture can chain two turns', (tester) async {
+    await tester.pumpWidget(
+      HisscoreApp(
+        highScoreStore: InMemoryHighScoreStore(),
+        engineFactory: () => SnakeEngine(random: Random(1)),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('PLAY'));
+    await tester.pump();
+
+    // Down, then left, without lifting the finger.
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(SnakeBoard)),
+    );
+    await gesture.moveBy(const Offset(0, 40));
+    await gesture.moveBy(const Offset(-40, 0));
+    await gesture.up();
+    await tester.pump();
+
+    final engine = _painterOf(tester).engine;
+    expect(engine.inputQueue, [Direction.down, Direction.left]);
+
+    await tester.pump(const Duration(milliseconds: 240));
+    expect(engine.direction, Direction.down);
+    await tester.pump(const Duration(milliseconds: 240));
+    expect(engine.direction, Direction.left);
+  });
+}
+
+SnakeBoardPainter _painterOf(WidgetTester tester) {
+  return tester
+      .widgetList<CustomPaint>(find.byType(CustomPaint))
+      .map((paint) => paint.painter)
+      .whereType<SnakeBoardPainter>()
+      .single;
 }

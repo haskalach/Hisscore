@@ -55,6 +55,23 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   final List<Timer> _labelTimers = [];
   int _labelSeq = 0;
 
+  // Movement interpolation: when the current tick started, so the board
+  // can animate the snake between cells instead of jumping.
+  DateTime _lastTickAt = DateTime.now();
+
+  /// Measured board geometry, so particles and popups land on the cell
+  /// they belong to instead of an assumed board size.
+  Size _boardSize = Size.zero;
+  Offset _boardOffset = Offset.zero;
+
+  double get _tickProgress {
+    if (engine.phase != GamePhase.running) return 1.0;
+    final tickMs = engine.tickInterval.inMilliseconds;
+    if (tickMs <= 0) return 1.0;
+    final elapsed = DateTime.now().difference(_lastTickAt).inMicroseconds;
+    return (elapsed / (tickMs * 1000)).clamp(0.0, 1.0);
+  }
+
   // Sound, reviews, reminders, daily challenge.
   final soundManager = SoundManager();
   final reviewPrompter = ReviewPrompter();
@@ -171,10 +188,12 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   void _armTicker() {
     ticker?.cancel();
     if (engine.phase != GamePhase.running) return;
+    _lastTickAt = DateTime.now();
     ticker = Timer.periodic(engine.tickInterval, (_) {
       if (!mounted) return;
       final scoreBefore = engine.score;
       setState(() {
+        _lastTickAt = DateTime.now();
         engine.tick();
 
         // Eat particles + floating popup.
@@ -238,16 +257,16 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     Color color, {
     bool big = false,
   }) {
-    const boardSize = 380.0;
-    final cellW = boardSize / engine.columns;
-    final cellH = boardSize / engine.rows;
+    final cell = _cellCenter(gridPos);
     final id = _labelSeq++;
     floatingLabels.add(
       _FloatingLabel(
         id: id,
         text: text,
-        x: gridPos.x * cellW + cellW / 2,
-        y: gridPos.y * cellH + cellH / 2,
+        // Labels sit in the board *area*, so shift by where the board
+        // itself is within it.
+        x: cell.dx + _boardOffset.dx,
+        y: cell.dy + _boardOffset.dy,
         color: color,
         big: big,
       ),
@@ -261,21 +280,21 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     _labelTimers.add(timer);
   }
 
+  /// Centre of a grid cell in the board's own pixel space — the same
+  /// space the painter (and therefore the particle system) draws in.
+  Offset _cellCenter(GridPoint point) {
+    final cellW = _boardSize.width / engine.columns;
+    final cellH = _boardSize.height / engine.rows;
+    return Offset(
+      point.x * cellW + cellW / 2,
+      point.y * cellH + cellH / 2,
+    );
+  }
+
   void _emitEatParticles(GridPoint pos) {
-    // We need to estimate the pixel position. The board fills the
-    // available space — we can approximate using the engine grid.
-    // The particles are drawn in the board's CustomPainter coordinate
-    // space, so we convert grid → fraction → expected pixel.
-    // The board painter uses: cellW = boardWidth / columns.
-    // We don't know the exact board pixel size here, but the particle
-    // system operates on approximate canvas coordinates passed through.
-    // For simplicity, we'll compute a reasonable position using the
-    // known grid dimensions and an assumed ~380×380 board area.
-    const boardSize = 380.0;
-    final cellW = boardSize / engine.columns;
-    final cellH = boardSize / engine.rows;
-    final cx = pos.x * cellW + cellW / 2;
-    final cy = pos.y * cellH + cellH / 2;
+    final cell = _cellCenter(pos);
+    final cx = cell.dx;
+    final cy = cell.dy;
 
     final color = switch (engine.lastEatenFood?.type) {
       FoodType.apple => RetroColors.food,
@@ -294,12 +313,8 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   }
 
   void _emitDeathParticles() {
-    const boardSize = 380.0;
-    final cellW = boardSize / engine.columns;
-    final cellH = boardSize / engine.rows;
-    final cx = engine.head.x * cellW + cellW / 2;
-    final cy = engine.head.y * cellH + cellH / 2;
-    particleSystem.emitDeath(cx, cy, RetroColors.cherry);
+    final cell = _cellCenter(engine.head);
+    particleSystem.emitDeath(cell.dx, cell.dy, RetroColors.cherry);
   }
 
   void _onPrimary() {
@@ -712,7 +727,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
             value: '🛡',
             color: RetroColors.shieldCyan,
           ),
-        if (engine.magnetTicksLeft > 0)
+        if (engine.magnetActive)
           const _MiniStat(
             label: '',
             value: '🧲',
@@ -724,6 +739,24 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   }
 
   Widget _buildBoardArea() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The board is an AspectRatio centred in this area — measure it
+        // so particles and popups can be placed on the right cell.
+        final aspect = engine.columns / engine.rows;
+        final width = min(constraints.maxWidth, constraints.maxHeight * aspect);
+        final height = width / aspect;
+        _boardSize = Size(width, height);
+        _boardOffset = Offset(
+          (constraints.maxWidth - width) / 2,
+          (constraints.maxHeight - height) / 2,
+        );
+        return _buildBoardStack();
+      },
+    );
+  }
+
+  Widget _buildBoardStack() {
     return AnimatedBuilder(
       animation: pulse,
       builder: (context, _) {
@@ -735,6 +768,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
               child: SnakeBoard(
                 engine: engine,
                 pulse: pulse.value,
+                tickProgress: _tickProgress,
                 particles: particleSystem,
                 onSwipe: _onTurn,
               ),

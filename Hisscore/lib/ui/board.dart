@@ -8,35 +8,61 @@ import '../game/snake_engine.dart';
 import 'particles.dart';
 import 'theme.dart';
 
-class SnakeBoard extends StatelessWidget {
+class SnakeBoard extends StatefulWidget {
   const SnakeBoard({
     super.key,
     required this.engine,
     required this.pulse,
+    this.tickProgress = 1.0,
     this.particles,
     this.onSwipe,
   });
 
   final SnakeEngine engine;
   final double pulse;
+
+  /// How far the current tick has played out, 0..1. Drives the
+  /// cell-to-cell movement animation.
+  final double tickProgress;
+
   final ParticleSystem? particles;
   final void Function(Direction direction)? onSwipe;
 
   @override
+  State<SnakeBoard> createState() => _SnakeBoardState();
+}
+
+class _SnakeBoardState extends State<SnakeBoard> {
+  /// How far a finger must travel before it counts as a swipe.
+  static const double _swipeThreshold = 16;
+
+  Offset? _dragOrigin;
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    final origin = _dragOrigin;
+    if (origin == null) return;
+    final delta = details.localPosition - origin;
+    if (delta.distance < _swipeThreshold) return;
+
+    final direction = delta.dx.abs() > delta.dy.abs()
+        ? (delta.dx > 0 ? Direction.right : Direction.left)
+        : (delta.dy > 0 ? Direction.down : Direction.up);
+    widget.onSwipe?.call(direction);
+
+    // Re-anchor so one continuous gesture can chain several turns.
+    _dragOrigin = details.localPosition;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onPanEnd: (details) {
-        final velocity = details.velocity.pixelsPerSecond;
-        if (velocity.distance < 180) {
-          return;
-        }
-        final direction = velocity.dx.abs() > velocity.dy.abs()
-            ? (velocity.dx > 0 ? Direction.right : Direction.left)
-            : (velocity.dy > 0 ? Direction.down : Direction.up);
-        onSwipe?.call(direction);
-      },
+      onPanDown: (details) => _dragOrigin = details.localPosition,
+      onPanStart: (details) => _dragOrigin = details.localPosition,
+      onPanUpdate: _onDragUpdate,
+      onPanEnd: (_) => _dragOrigin = null,
+      onPanCancel: () => _dragOrigin = null,
       child: AspectRatio(
-        aspectRatio: engine.columns / engine.rows,
+        aspectRatio: widget.engine.columns / widget.engine.rows,
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: RetroColors.screen,
@@ -52,9 +78,10 @@ class SnakeBoard extends StatelessWidget {
           child: ClipRect(
             child: CustomPaint(
               painter: SnakeBoardPainter(
-                engine: engine,
-                pulse: pulse,
-                particles: particles,
+                engine: widget.engine,
+                pulse: widget.pulse,
+                tickProgress: widget.tickProgress,
+                particles: widget.particles,
               ),
               child: const SizedBox.expand(),
             ),
@@ -69,11 +96,13 @@ class SnakeBoardPainter extends CustomPainter {
   SnakeBoardPainter({
     required this.engine,
     required this.pulse,
+    this.tickProgress = 1.0,
     this.particles,
   });
 
   final SnakeEngine engine;
   final double pulse;
+  final double tickProgress;
   final ParticleSystem? particles;
 
   @override
@@ -121,8 +150,7 @@ class SnakeBoardPainter extends CustomPainter {
 
     // ── Snake glow pass ──
     for (var i = engine.snake.length - 1; i >= 0; i--) {
-      final segment = engine.snake[i];
-      final rect = _cell(segment, cellW, cellH).inflate(cellW * 0.12);
+      final rect = _segmentRect(i, cellW, cellH).inflate(cellW * 0.12);
       final t = engine.snake.length > 1
           ? i / (engine.snake.length - 1)
           : 0.0;
@@ -142,8 +170,7 @@ class SnakeBoardPainter extends CustomPainter {
 
     // ── Snake body (gradient head → tail) ──
     for (var i = engine.snake.length - 1; i >= 0; i--) {
-      final segment = engine.snake[i];
-      final rect = _cell(segment, cellW, cellH).deflate(cellW * 0.08);
+      final rect = _segmentRect(i, cellW, cellH).deflate(cellW * 0.08);
       final isHead = i == 0;
       final t = engine.snake.length > 1
           ? i / (engine.snake.length - 1)
@@ -161,16 +188,17 @@ class SnakeBoardPainter extends CustomPainter {
 
       // ── Connecting segments (fill gaps between adjacent segments) ──
       if (i < engine.snake.length - 1) {
-        final prev = engine.snake[i + 1];
-        final dx = segment.x - prev.x;
-        final dy = segment.y - prev.y;
-        // Only draw connector if segments are adjacent (not wrapping).
-        if (dx.abs() <= 1 && dy.abs() <= 1 && (dx != 0 || dy != 0)) {
+        final here = rect.center;
+        final behind = _segmentRect(i + 1, cellW, cellH).center;
+        final dx = behind.dx - here.dx;
+        final dy = behind.dy - here.dy;
+        // Only draw a connector between neighbours — skip the long jump
+        // a wrapped segment makes across the board.
+        if (dx.abs() <= cellW * 1.5 &&
+            dy.abs() <= cellH * 1.5 &&
+            (dx != 0 || dy != 0)) {
           final connRect = Rect.fromCenter(
-            center: Offset(
-              (segment.x + prev.x) / 2 * cellW + cellW / 2,
-              (segment.y + prev.y) / 2 * cellH + cellH / 2,
-            ),
+            center: Offset((here.dx + behind.dx) / 2, (here.dy + behind.dy) / 2),
             width: dx != 0 ? cellW * 0.6 : cellW * 0.65,
             height: dy != 0 ? cellH * 0.6 : cellH * 0.65,
           );
@@ -240,9 +268,9 @@ class SnakeBoardPainter extends CustomPainter {
     final r = rect.shortestSide / 2;
 
     // Pulsing animation factor (only for permanent foods).
-    final foodScale = item.lifetime == null
+    final foodScale = item.lifetimeMs == null
         ? 0.72 + (pulse * 0.14)
-        : 0.60 + (item.lifeFraction(engine.totalTicks) * 0.26);
+        : 0.60 + (item.lifeFraction(engine.elapsedMs) * 0.26);
 
     switch (item.type) {
       case FoodType.apple:
@@ -343,8 +371,8 @@ class SnakeBoardPainter extends CustomPainter {
     }
 
     // Timed food: blink when about to expire.
-    if (item.lifetime != null) {
-      final frac = item.lifeFraction(engine.totalTicks);
+    if (item.lifetimeMs != null) {
+      final frac = item.lifeFraction(engine.elapsedMs);
       if (frac < 0.3 && pulse > 0.5) {
         // Flash overlay to signal imminent despawn.
         canvas.drawCircle(
@@ -396,6 +424,39 @@ class SnakeBoardPainter extends CustomPainter {
 
   Rect _cell(GridPoint point, double cellW, double cellH) {
     return Rect.fromLTWH(point.x * cellW, point.y * cellH, cellW, cellH);
+  }
+
+  /// Where segment [i] sits right now, part-way through the current tick.
+  ///
+  /// Each segment slides from where it was to where it is, which is the
+  /// position of the segment that was ahead of it — so the whole snake
+  /// flows forward instead of jumping a cell at a time.
+  Rect _segmentRect(int i, double cellW, double cellH) {
+    final current = engine.snake[i];
+    final previous = engine.previousSnake;
+
+    // A segment added this tick (the snake grew) has nowhere to come
+    // from — it grows out of the old tail, which means it stays put.
+    final from = i < previous.length
+        ? previous[i]
+        : (previous.isNotEmpty ? previous.last : current);
+
+    final dx = (current.x - from.x).toDouble();
+    final dy = (current.y - from.y).toDouble();
+
+    // A wrapped segment teleports across the board; sliding it would
+    // sweep the whole width. Snap instead.
+    if (dx.abs() > 1 || dy.abs() > 1) {
+      return _cell(current, cellW, cellH);
+    }
+
+    final t = tickProgress.clamp(0.0, 1.0);
+    return Rect.fromLTWH(
+      (from.x + dx * t) * cellW,
+      (from.y + dy * t) * cellH,
+      cellW,
+      cellH,
+    );
   }
 
   @override

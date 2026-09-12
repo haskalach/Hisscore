@@ -235,21 +235,23 @@ void main() {
   });
 
   test('combo resets after window expires', () {
-    final game = engine(firstFoodDistance: 20);
+    // Endless mode so the snake can run past the window without dying.
+    final game = engine(firstFoodDistance: 1, mode: GameMode.endless);
     game.start();
-    // Move without eating for many ticks.
-    for (var i = 0; i < 15; i++) {
-      game.queueTurn(Direction.down);
+    game.tick(); // eats the apple one cell ahead
+    expect(game.comboCount, 1);
+
+    // Keep an apple on the board but well off the snake's row, and run
+    // out the clock.
+    final ticksNeeded =
+        (SnakeEngine.comboWindowMs / game.tickInterval.inMilliseconds).ceil() +
+        1;
+    for (var i = 0; i < ticksNeeded; i++) {
+      game.foods = [
+        const FoodItem(position: GridPoint(19, 19), type: FoodType.apple),
+      ];
       game.tick();
-      game.queueTurn(Direction.right);
-      game.tick();
-      game.queueTurn(Direction.up);
-      game.tick();
-      game.queueTurn(Direction.right);
-      game.tick();
-      if (game.phase != GamePhase.running) break;
     }
-    // Combo should stay at 0 since no food eaten in window.
     expect(game.comboCount, 0);
   });
 
@@ -339,9 +341,167 @@ void main() {
       FoodItem(position: farApple, type: FoodType.apple),
     ];
     game.tick();
-    expect(game.magnetTicksLeft, greaterThan(0));
+    expect(game.magnetActive, isTrue);
     final apple = game.foods.firstWhere((f) => f.type == FoodType.apple);
     expect(apple.position.x, lessThan(farApple.x));
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: input buffer
+  // ═══════════════════════════════════════════════════
+
+  test('queues two turns and applies them one per tick', () {
+    final game = engine(firstFoodDistance: 20);
+    game.start();
+    game.queueTurn(Direction.up);
+    game.queueTurn(Direction.left);
+    expect(game.inputQueue, [Direction.up, Direction.left]);
+
+    game.tick();
+    expect(game.direction, Direction.up);
+    game.tick();
+    expect(game.direction, Direction.left);
+    expect(game.inputQueue, isEmpty);
+  });
+
+  test('rejects a turn that reverses the already queued turn', () {
+    final game = engine(firstFoodDistance: 20);
+    game.start();
+    game.queueTurn(Direction.up);
+    game.queueTurn(Direction.down); // reverse of the queued turn
+    expect(game.inputQueue, [Direction.up]);
+  });
+
+  test('ignores a repeat of the current heading', () {
+    final game = engine(firstFoodDistance: 20);
+    game.start();
+    game.queueTurn(Direction.right); // already heading right
+    expect(game.inputQueue, isEmpty);
+  });
+
+  test('never queues more than two turns', () {
+    final game = engine(firstFoodDistance: 20);
+    game.start();
+    game.queueTurn(Direction.up);
+    game.queueTurn(Direction.left);
+    game.queueTurn(Direction.down);
+    expect(game.inputQueue, hasLength(SnakeEngine.maxQueuedTurns));
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: wall-clock timing
+  // ═══════════════════════════════════════════════════
+
+  test('combo window holds the same real time after the game speeds up', () {
+    final slow = engine(firstFoodDistance: 20);
+    slow.start();
+    slow.tick();
+    final slowTicks =
+        (SnakeEngine.comboWindowMs / slow.tickInterval.inMilliseconds).ceil();
+
+    // A faster engine needs proportionally more ticks for the same window.
+    final fast = SnakeEngine(
+      initialTick: const Duration(milliseconds: 120),
+      random: Random(1),
+    );
+    fast.start();
+    fast.tick();
+    final fastTicks =
+        (SnakeEngine.comboWindowMs / fast.tickInterval.inMilliseconds).ceil();
+
+    expect(fastTicks, slowTicks * 2);
+  });
+
+  test('bonus food expires on elapsed time, not tick count', () {
+    final game = engine(firstFoodDistance: 20);
+    game.start();
+    const bonus = FoodItem(
+      position: GridPoint(18, 18),
+      type: FoodType.star,
+      spawnMs: 0,
+      lifetimeMs: SnakeEngine.bonusFoodLifetimeMs,
+    );
+    expect(bonus.isExpired(SnakeEngine.bonusFoodLifetimeMs - 1), isFalse);
+    expect(bonus.isExpired(SnakeEngine.bonusFoodLifetimeMs), isTrue);
+  });
+
+  test('engine clock advances by the tick interval', () {
+    final game = engine(firstFoodDistance: 20);
+    game.start();
+    final step = game.tickInterval.inMilliseconds;
+    game.tick();
+    game.tick();
+    expect(game.elapsedMs, step * 2);
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: food spawn distance
+  // ═══════════════════════════════════════════════════
+
+  test('respawned food keeps its distance from the head', () {
+    final game = engine(firstFoodDistance: 1);
+    game.start();
+    // Eat repeatedly; every respawn should land clear of the head.
+    for (var i = 0; i < 30 && game.phase == GamePhase.running; i++) {
+      for (final food in game.foods) {
+        final dx = (food.position.x - game.head.x).abs();
+        final dy = (food.position.y - game.head.y).abs();
+        expect(
+          dx > dy ? dx : dy,
+          greaterThanOrEqualTo(1),
+          reason: 'food should never spawn on the head',
+        );
+      }
+      game.queueTurn(i.isEven ? Direction.down : Direction.right);
+      game.tick();
+    }
+  });
+
+  // ═══════════════════════════════════════════════════
+  // New: hardcore obstacles
+  // ═══════════════════════════════════════════════════
+
+  test('hardcore starts with obstacles on the board', () {
+    final game = engine(mode: GameMode.hardcore);
+    expect(game.obstacles, isNotEmpty);
+  });
+
+  test('classic and zen stay obstacle-free', () {
+    expect(engine(mode: GameMode.classic).obstacles, isEmpty);
+    expect(engine(mode: GameMode.zen).obstacles, isEmpty);
+  });
+
+  test('hardcore obstacles never cover the snake', () {
+    final game = engine(mode: GameMode.hardcore);
+    for (final segment in game.snake) {
+      expect(game.obstacles.contains(segment), isFalse);
+    }
+  });
+
+  test('hardcore leaves the starting lane clear', () {
+    final game = engine(mode: GameMode.hardcore);
+    final startRow = game.head.y;
+    // The snake starts heading right along this row — nothing may block
+    // it before the player has a chance to turn.
+    final blockers = game.obstacles.where((o) => o.y == startRow);
+    expect(blockers, isEmpty);
+  });
+
+  test('food is never left buried under newly placed obstacles', () {
+    final game = engine(mode: GameMode.adventure);
+    game.start();
+    // Run a while so levels advance and obstacle patterns change.
+    for (var i = 0; i < 400 && game.phase == GamePhase.running; i++) {
+      game.queueTurn(i % 4 == 0 ? Direction.down : Direction.right);
+      game.tick();
+      for (final food in game.foods) {
+        expect(
+          game.obstacles.contains(food.position),
+          isFalse,
+          reason: 'food should never sit inside an obstacle',
+        );
+      }
+    }
   });
 }
 

@@ -36,12 +36,16 @@ enum FoodType {
 }
 
 /// A single collectible item on the game board.
+///
+/// Lifetimes are tracked in milliseconds off the engine's own clock, not
+/// tick counts — the tick interval shrinks as the game speeds up, so a
+/// tick-based lifetime would quietly halve in real time.
 class FoodItem {
   const FoodItem({
     required this.position,
     required this.type,
-    this.spawnTick = 0,
-    this.lifetime,
+    this.spawnMs = 0,
+    this.lifetimeMs,
   });
 
   /// Grid position of this item.
@@ -50,23 +54,25 @@ class FoodItem {
   /// What kind of food this is.
   final FoodType type;
 
-  /// The tick count when this item was spawned.
-  final int spawnTick;
+  /// Engine clock reading when this item was spawned.
+  final int spawnMs;
 
-  /// How many ticks this item lives before despawning.
+  /// How long this item lives before despawning, in milliseconds.
   /// `null` means it stays until eaten (apples).
-  final int? lifetime;
+  final int? lifetimeMs;
 
-  /// Whether this food has expired at the given tick count.
-  bool isExpired(int currentTick) {
-    if (lifetime == null) return false;
-    return currentTick - spawnTick >= lifetime!;
+  /// How long this item has been on the board at [nowMs].
+  int ageMs(int nowMs) => nowMs - spawnMs;
+
+  /// Whether this food has expired at the given clock reading.
+  bool isExpired(int nowMs) {
+    if (lifetimeMs == null) return false;
+    return ageMs(nowMs) >= lifetimeMs!;
   }
 
   /// Fraction of lifetime remaining (1.0 = just spawned, 0.0 = about to expire).
-  double lifeFraction(int currentTick) {
-    if (lifetime == null) return 1.0;
-    final elapsed = currentTick - spawnTick;
-    return (1.0 - elapsed / lifetime!).clamp(0.0, 1.0);
+  double lifeFraction(int nowMs) {
+    if (lifetimeMs == null) return 1.0;
+    return (1.0 - ageMs(nowMs) / lifetimeMs!).clamp(0.0, 1.0);
   }
 }
