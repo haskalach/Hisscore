@@ -215,9 +215,7 @@ class SnakeBoardPainter extends CustomPainter {
     // ── Snake glow pass ──
     for (var i = engine.snake.length - 1; i >= 0; i--) {
       final rect = _segmentRect(i, cellW, cellH).inflate(cellW * 0.12);
-      final t = engine.snake.length > 1
-          ? i / (engine.snake.length - 1)
-          : 0.0;
+      final t = engine.snake.length > 1 ? i / (engine.snake.length - 1) : 0.0;
       final glowColor = Color.lerp(
         RetroColors.phosphorHot,
         RetroColors.snakeTail,
@@ -235,9 +233,7 @@ class SnakeBoardPainter extends CustomPainter {
     // ── Snake body (gradient head → tail) ──
     for (var i = engine.snake.length - 1; i >= 0; i--) {
       final isHead = i == 0;
-      final t = engine.snake.length > 1
-          ? i / (engine.snake.length - 1)
-          : 0.0;
+      final t = engine.snake.length > 1 ? i / (engine.snake.length - 1) : 0.0;
       // Taper toward the tail so the body reads as a snake rather than
       // a chain of identical blocks.
       final rect = _segmentRect(
@@ -270,7 +266,10 @@ class SnakeBoardPainter extends CustomPainter {
           // Connectors taper with the body they join.
           final taper = 1.0 - 0.28 * t;
           final connRect = Rect.fromCenter(
-            center: Offset((here.dx + behind.dx) / 2, (here.dy + behind.dy) / 2),
+            center: Offset(
+              (here.dx + behind.dx) / 2,
+              (here.dy + behind.dy) / 2,
+            ),
             width: (dx != 0 ? cellW * 0.6 : cellW * 0.65) * taper,
             height: (dy != 0 ? cellH * 0.6 : cellH * 0.65) * taper,
           );
@@ -592,6 +591,9 @@ class SnakeBoardPainter extends CustomPainter {
     final rows = (base * size.height / size.width).round().clamp(base, maxSpan);
     return (columns: base, rows: rows);
   }
-  final columns = (base * size.width / size.height).round().clamp(base, maxSpan);
+  final columns = (base * size.width / size.height).round().clamp(
+    base,
+    maxSpan,
+  );
   return (columns: columns, rows: base);
 }

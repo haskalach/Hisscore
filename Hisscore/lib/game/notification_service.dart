@@ -18,7 +18,9 @@ class NotificationService {
     if (_initialized) return;
     try {
       tzdata.initializeTimeZones();
-      const androidSettings = AndroidInitializationSettings('@mipmap/launcher_icon');
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/launcher_icon',
+      );
       const iosSettings = DarwinInitializationSettings();
       const settings = InitializationSettings(
         android: androidSettings,
@@ -38,10 +40,14 @@ class NotificationService {
   Future<void> requestPermission() async {
     try {
       await _plugin
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
           ?.requestNotificationsPermission();
       await _plugin
-          .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
           ?.requestPermissions(alert: true, badge: true, sound: true);
     } catch (e) {
       debugPrint('NotificationService: permission request failed ($e)');
@@ -61,7 +67,8 @@ class NotificationService {
         android: AndroidNotificationDetails(
           'daily_streak',
           'Daily streak reminders',
-          channelDescription: "Reminds you to keep your Hisscore daily streak alive",
+          channelDescription:
+              "Reminds you to keep your Hisscore daily streak alive",
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
         ),

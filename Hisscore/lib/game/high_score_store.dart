@@ -33,11 +33,7 @@ class ScoreEntry {
 // ─── Cumulative stats ───────────────────────────────
 
 class GameStats {
-  GameStats({
-    this.gamesPlayed = 0,
-    this.totalApples = 0,
-    this.bestCombo = 0,
-  });
+  GameStats({this.gamesPlayed = 0, this.totalApples = 0, this.bestCombo = 0});
 
   int gamesPlayed;
   int totalApples;

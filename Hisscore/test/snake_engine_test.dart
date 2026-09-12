@@ -147,10 +147,12 @@ void main() {
     for (var i = 0; i < 3; i++) {
       // Place an apple directly ahead.
       game.foods.clear();
-      game.foods.add(FoodItem(
-        position: GridPoint(game.head.x + 1, game.head.y),
-        type: FoodType.apple,
-      ));
+      game.foods.add(
+        FoodItem(
+          position: GridPoint(game.head.x + 1, game.head.y),
+          type: FoodType.apple,
+        ),
+      );
       game.tick();
       expect(game.justAte, isTrue, reason: 'Apple ${i + 2} not eaten');
     }
@@ -165,7 +167,12 @@ void main() {
   // ═══════════════════════════════════════════════════
 
   test('classic mode: wall collision ends game', () {
-    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.classic);
+    final game = engine(
+      columns: 5,
+      rows: 5,
+      firstFoodDistance: 10,
+      mode: GameMode.classic,
+    );
     game.start();
     // Head is at (2,2), move right → 3, 4, then wall.
     game.tick(); // (3,2)
@@ -175,7 +182,12 @@ void main() {
   });
 
   test('endless mode: snake wraps around walls', () {
-    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.endless);
+    final game = engine(
+      columns: 5,
+      rows: 5,
+      firstFoodDistance: 10,
+      mode: GameMode.endless,
+    );
     game.start();
     // Head at (2,2), move right.
     game.tick(); // (3,2)
@@ -203,7 +215,12 @@ void main() {
   });
 
   test('shield allows passing through one wall', () {
-    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.classic);
+    final game = engine(
+      columns: 5,
+      rows: 5,
+      firstFoodDistance: 10,
+      mode: GameMode.classic,
+    );
     game.start();
     game.hasShield = true;
     // Move right to the wall.
@@ -283,15 +300,30 @@ void main() {
   // ═══════════════════════════════════════════════════
 
   test('hardcore mode doubles apple points', () {
-    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.hardcore);
+    final game = engine(
+      columns: 5,
+      rows: 5,
+      firstFoodDistance: 10,
+      mode: GameMode.hardcore,
+    );
     game.start();
-    game.foods = [FoodItem(position: GridPoint(game.head.x + 1, game.head.y), type: FoodType.apple)];
+    game.foods = [
+      FoodItem(
+        position: GridPoint(game.head.x + 1, game.head.y),
+        type: FoodType.apple,
+      ),
+    ];
     game.tick();
     expect(game.score, 20);
   });
 
   test('hardcore mode ignores shields on wall collision', () {
-    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.hardcore);
+    final game = engine(
+      columns: 5,
+      rows: 5,
+      firstFoodDistance: 10,
+      mode: GameMode.hardcore,
+    );
     game.start();
     game.hasShield = true;
     for (var i = 0; i < 5; i++) {
@@ -320,7 +352,12 @@ void main() {
   });
 
   test('zen mode wraps at walls instead of dying', () {
-    final game = engine(columns: 5, rows: 5, firstFoodDistance: 10, mode: GameMode.zen);
+    final game = engine(
+      columns: 5,
+      rows: 5,
+      firstFoodDistance: 10,
+      mode: GameMode.zen,
+    );
     game.start();
     for (var i = 0; i < 5; i++) {
       game.tick();
@@ -337,7 +374,10 @@ void main() {
     game.start();
     final farApple = GridPoint(game.head.x + 5, game.head.y);
     game.foods = [
-      FoodItem(position: GridPoint(game.head.x + 1, game.head.y), type: FoodType.magnet),
+      FoodItem(
+        position: GridPoint(game.head.x + 1, game.head.y),
+        type: FoodType.magnet,
+      ),
       FoodItem(position: farApple, type: FoodType.apple),
     ];
     game.tick();
@@ -504,4 +544,3 @@ void main() {
     }
   });
 }
-
