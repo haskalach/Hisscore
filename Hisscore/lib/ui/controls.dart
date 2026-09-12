@@ -538,7 +538,7 @@ class ModeSelector extends StatelessWidget {
       children: [
         Text(
           'SELECT MODE',
-          style: RetroText.pixel(size: 7, color: RetroColors.phosphorDim),
+          style: RetroText.pixel(size: 9, color: RetroColors.phosphorDim),
         ),
         const SizedBox(height: 8),
         Wrap(
@@ -557,7 +557,7 @@ class ModeSelector extends StatelessWidget {
         const SizedBox(height: 6),
         Text(
           selected.description,
-          style: RetroText.pixel(size: 6, color: RetroColors.metal),
+          style: RetroText.pixel(size: 8, color: RetroColors.metal),
         ),
       ],
     );
@@ -575,13 +575,15 @@ class _ModeChip extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
 
+  static const _chipFade = Duration(milliseconds: 200);
+
   @override
   Widget build(BuildContext context) {
     final accent = mode.accentColor;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: _chipFade,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
           color: isSelected ? accent : Colors.transparent,
@@ -591,12 +593,15 @@ class _ModeChip extends StatelessWidget {
             width: 1.5,
           ),
         ),
-        child: Text(
-          mode.label,
+        // The label fades with the fill — switching it instantly leaves
+        // dark text on a still-dark chip for the length of the fade.
+        child: AnimatedDefaultTextStyle(
+          duration: _chipFade,
           style: RetroText.pixel(
-            size: 6,
+            size: 7,
             color: isSelected ? RetroColors.cabinet : accent,
           ),
+          child: Text(mode.label),
         ),
       ),
     );
@@ -638,7 +643,7 @@ class FoodLegend extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 type.label,
-                style: RetroText.pixel(size: 5, color: RetroColors.metal),
+                style: RetroText.pixel(size: 7, color: RetroColors.metal),
               ),
             ],
           ),
