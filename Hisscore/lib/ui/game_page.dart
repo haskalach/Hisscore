@@ -67,6 +67,19 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   /// device instead of a fixed square.
   Size _viewport = Size.zero;
 
+  /// Status-bar / notch inset, excluded from the play area.
+  double _topInset = 0;
+
+  /// Height of the in-game HUD band above the board.
+  static const double _hudHeight = 52;
+
+  /// What the board itself will get once the HUD band is taken off the
+  /// top — the grid is shaped to this, not to the whole screen.
+  Size get _playAreaSize => Size(
+    _viewport.width,
+    (_viewport.height - _topInset - _hudHeight).clamp(1, double.infinity),
+  );
+
   // Floating popup text (score gains, combos, level-ups).
   final List<_FloatingLabel> floatingLabels = [];
   final List<Timer> _labelTimers = [];
@@ -100,7 +113,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   SnakeEngine _newEngine({GameMode? mode, Random? random}) {
     final injected = widget.engineFactory;
     if (injected != null && random == null) return injected();
-    final grid = boardGridFor(_viewport);
+    final grid = boardGridFor(_playAreaSize);
     return SnakeEngine(
       columns: grid.columns,
       rows: grid.rows,
@@ -616,6 +629,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 _viewport = constraints.biggest;
+                _topInset = MediaQuery.paddingOf(context).top;
                 return showIntro ? _buildIntro() : _buildGameScreen();
               },
             ),
@@ -656,23 +670,28 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
 
   /// The game: board edge to edge, a thin HUD over it, gestures only.
   Widget _buildGameScreen() {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        _buildBoardStack(),
-        SafeArea(
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: _buildGameHud(),
-          ),
-        ),
-      ],
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          // The HUD gets its own band rather than floating over the
+          // playfield — otherwise the snake runs underneath the score.
+          SizedBox(height: _hudHeight, child: _buildGameHud()),
+          Expanded(child: _buildBoardStack()),
+        ],
+      ),
     );
   }
 
   Widget _buildGameHud() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+      decoration: const BoxDecoration(
+        color: RetroColors.voidBg,
+        border: Border(
+          bottom: BorderSide(color: RetroColors.phosphorDim, width: 1.5),
+        ),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
