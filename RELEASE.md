@@ -39,12 +39,14 @@ Or grab the artifact from any green CI run.
 ### 2. Privacy policy at a public URL
 
 Both stores require a reachable policy even though the app collects
-nothing. A draft exists but is **not hosted and has a placeholder
-contact address**.
+nothing. The page is written — [`docs/index.html`](docs/index.html) —
+but is **not hosted yet and has a placeholder contact address**.
 
-- [ ] Put a real support email in it
-- [ ] Host it somewhere permanent (GitHub Pages off this repo is fine)
-- [ ] Paste the URL into Play Console and App Store Connect
+- [ ] Put a real support email in it (currently `support@hisscore.app`,
+      clearly marked as a placeholder)
+- [ ] Turn on GitHub Pages for this repo: Settings → Pages → Source →
+      Deploy from branch → `main` / `/docs`
+- [ ] Paste the resulting URL into Play Console and App Store Connect
 
 The substance is short and already true: no accounts, no analytics, no
 ads, no network calls; scores and stats live in local app storage;
@@ -106,9 +108,15 @@ iOS assets on every icon run for nothing.
 errors are captured and the last 20 kept on-device, but **nothing is
 sent anywhere**. You'll still be blind to crashes in the wild.
 
-- [ ] Choose Crashlytics (needs a Firebase project) or Sentry (needs a
-      DSN) and implement `CrashReporter` against it — every call site
-      already reports through the interface
+`SentryCrashReporter` (`lib/game/sentry_crash_reporter.dart`) is wired
+up and used in `main.dart` when a DSN is supplied at build time — it
+falls back to the local-only reporter otherwise, so this ships as a
+no-op until a Sentry project exists.
+
+- [ ] Create a Sentry project, get its DSN
+- [ ] Build/run with
+      `--dart-define=SENTRY_DSN=<your dsn>` (see `README`/`AGENTS.md`)
+- [ ] Consider passing it through CI as a repo secret for release builds
 
 ### Store listing content
 
