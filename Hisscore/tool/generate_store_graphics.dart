@@ -13,7 +13,6 @@ final _phosphor = img.ColorRgba8(0x7C, 0xFF, 0x6B, 255);
 final _phosphorHot = img.ColorRgba8(0xD4, 0xFF, 0x9A, 255);
 final _snakeTail = img.ColorRgba8(0x1A, 0x60, 0x30, 255);
 final _apple = img.ColorRgba8(0xFF, 0x5A, 0x6A, 255);
-final _amber = img.ColorRgba8(0xFF, 0xB0, 0x00, 255);
 final _starGold = img.ColorRgba8(0xFF, 0xD7, 0x00, 255);
 final _shieldCyan = img.ColorRgba8(0x00, 0xE5, 0xFF, 255);
 final _magnetPink = img.ColorRgba8(0xFF, 0x6E, 0xC7, 255);
