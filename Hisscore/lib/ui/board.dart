@@ -16,10 +16,16 @@ class SnakeBoard extends StatefulWidget {
     this.tickProgress = 1.0,
     this.particles,
     this.onSwipe,
+    this.fullBleed = false,
   });
 
   final SnakeEngine engine;
   final double pulse;
+
+  /// Fill the whole box with no bezel — how the board is shown during
+  /// play. The framed, aspect-locked version is used for the intro
+  /// screen's demo.
+  final bool fullBleed;
 
   /// How far the current tick has played out, 0..1. Drives the
   /// cell-to-cell movement animation.
@@ -72,33 +78,41 @@ class _SnakeBoardState extends State<SnakeBoard> {
       onPanUpdate: _onDragUpdate,
       onPanEnd: (_) => _dragOrigin = null,
       onPanCancel: () => _dragOrigin = null,
-      child: AspectRatio(
-        aspectRatio: widget.engine.columns / widget.engine.rows,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: RetroColors.screen,
-            border: Border.all(color: RetroColors.phosphorDim, width: 2),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x6600FF66),
-                blurRadius: 18,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: ClipRect(
-            child: CustomPaint(
-              painter: SnakeBoardPainter(
-                engine: widget.engine,
-                pulse: widget.pulse,
-                tickProgress: widget.tickProgress,
-                particles: widget.particles,
-                staticLayers: _staticLayers,
-              ),
-              child: const SizedBox.expand(),
-            ),
-          ),
+      child: widget.fullBleed ? _buildScreen() : _buildFramedScreen(),
+    );
+  }
+
+  Widget _buildScreen() {
+    return ClipRect(
+      child: CustomPaint(
+        painter: SnakeBoardPainter(
+          engine: widget.engine,
+          pulse: widget.pulse,
+          tickProgress: widget.tickProgress,
+          particles: widget.particles,
+          staticLayers: _staticLayers,
         ),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+
+  Widget _buildFramedScreen() {
+    return AspectRatio(
+      aspectRatio: widget.engine.columns / widget.engine.rows,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: RetroColors.screen,
+          border: Border.all(color: RetroColors.phosphorDim, width: 2),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x6600FF66),
+              blurRadius: 18,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: _buildScreen(),
       ),
     );
   }
@@ -560,4 +574,24 @@ class SnakeBoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant SnakeBoardPainter oldDelegate) => true;
+}
+
+// ─── Board sizing ───────────────────────────────────
+
+/// A grid that fills [size] with square-ish cells: 20 across in
+/// portrait with as many rows as the screen is tall, flipped for
+/// landscape. Clamped so an extreme window can't produce an absurd
+/// board.
+({int columns, int rows}) boardGridFor(Size size) {
+  const base = 20;
+  const maxSpan = 46;
+  if (size.width <= 0 || size.height <= 0) {
+    return (columns: base, rows: base);
+  }
+  if (size.height >= size.width) {
+    final rows = (base * size.height / size.width).round().clamp(base, maxSpan);
+    return (columns: base, rows: rows);
+  }
+  final columns = (base * size.width / size.height).round().clamp(base, maxSpan);
+  return (columns: columns, rows: base);
 }

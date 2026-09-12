@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../game/auto_player.dart';
 import '../game/daily_challenge.dart';
 import '../game/food_types.dart';
 import '../game/high_score_store.dart';
@@ -53,6 +54,32 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   // Which ready-screen tab is showing.
   ReadyTab readyTab = ReadyTab.modes;
 
+  /// Intro (cabinet, attract demo, mode picking) versus the full-screen
+  /// game. The engine's own phase drives everything inside the game.
+  bool showIntro = true;
+
+  /// A second engine that plays itself behind the intro screen.
+  SnakeEngine? demoEngine;
+  Timer? demoTicker;
+  DateTime _demoTickAt = DateTime.now();
+
+  /// Last measured viewport, so a new game's grid can be sized to the
+  /// device instead of a fixed square.
+  Size _viewport = Size.zero;
+
+  /// Status-bar / notch inset, excluded from the play area.
+  double _topInset = 0;
+
+  /// Height of the in-game HUD band above the board.
+  static const double _hudHeight = 52;
+
+  /// What the board itself will get once the HUD band is taken off the
+  /// top — the grid is shaped to this, not to the whole screen.
+  Size get _playAreaSize => Size(
+    _viewport.width,
+    (_viewport.height - _topInset - _hudHeight).clamp(1, double.infinity),
+  );
+
   // Floating popup text (score gains, combos, level-ups).
   final List<_FloatingLabel> floatingLabels = [];
   final List<Timer> _labelTimers = [];
@@ -80,6 +107,20 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   /// they belong to instead of an assumed board size.
   Size _boardSize = Size.zero;
   Offset _boardOffset = Offset.zero;
+
+  /// Builds an engine sized to the current screen. Tests inject their
+  /// own engine and keep whatever grid they asked for.
+  SnakeEngine _newEngine({GameMode? mode, Random? random}) {
+    final injected = widget.engineFactory;
+    if (injected != null && random == null) return injected();
+    final grid = boardGridFor(_playAreaSize);
+    return SnakeEngine(
+      columns: grid.columns,
+      rows: grid.rows,
+      mode: mode ?? selectedMode,
+      random: random,
+    );
+  }
 
   double get _tickProgress {
     if (engine.phase != GamePhase.running) return 1.0;
@@ -118,6 +159,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     unawaited(_loadHighScore());
     unawaited(soundManager.init());
     unawaited(notificationService.init());
+    _startDemo();
   }
 
   Future<void> _loadHighScore() async {
@@ -200,6 +242,53 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
       await notificationService.requestPermission();
       await notificationService.scheduleStreakReminder(streak: newStreak);
     }
+  }
+
+  // ═══════════════════════════════════════════════════
+  // Attract mode
+  // ═══════════════════════════════════════════════════
+
+  /// Runs a snake that plays itself behind the intro, so the menu shows
+  /// the game rather than describing it.
+  void _startDemo() {
+    demoTicker?.cancel();
+    final demo = SnakeEngine(
+      columns: 20,
+      rows: 20,
+      mode: GameMode.endless, // wraps, so the demo rarely stalls
+    );
+    demo.start();
+    demoEngine = demo;
+    _demoTickAt = DateTime.now();
+    demoTicker = Timer.periodic(const Duration(milliseconds: 170), (_) {
+      if (!mounted || !showIntro) return;
+      setState(() {
+        _demoTickAt = DateTime.now();
+        final next = AutoPlayer.chooseDirection(demo);
+        if (next != null) demo.queueTurn(next);
+        demo.tick();
+        // Cornered itself — start over rather than sit on a dead board.
+        if (demo.phase != GamePhase.running) {
+          demo.reset();
+          demo.start();
+        }
+      });
+    });
+  }
+
+  void _stopDemo() {
+    demoTicker?.cancel();
+    demoTicker = null;
+    demoEngine = null;
+  }
+
+  double get _demoTickProgress {
+    final demo = demoEngine;
+    if (demo == null) return 1;
+    final tickMs = demo.tickInterval.inMilliseconds;
+    if (tickMs <= 0) return 1;
+    final elapsed = DateTime.now().difference(_demoTickAt).inMicroseconds;
+    return (elapsed / (tickMs * 1000)).clamp(0.0, 1.0);
   }
 
   void _armTicker() {
@@ -350,11 +439,8 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
       newHighScore = false;
       if (engine.phase == GamePhase.gameOver ||
           engine.phase == GamePhase.ready) {
-        // Apply selected mode.
-        if (engine.mode != selectedMode) {
-          engine =
-              widget.engineFactory?.call() ?? SnakeEngine(mode: selectedMode);
-        }
+        // A fresh run always gets an engine sized to this screen.
+        engine = _newEngine();
         engine.mode = selectedMode;
         isDailyRun = false;
       }
@@ -367,6 +453,44 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     });
   }
 
+  /// Leaves the intro for the full-screen game.
+  void _enterGame() {
+    _stopDemo();
+    setState(() => showIntro = false);
+    _onPrimary();
+  }
+
+  /// Back to the intro, demo running again.
+  void _returnToIntro() {
+    setState(() {
+      ticker?.cancel();
+      engine = _newEngine();
+      engine.reset();
+      engine.phase = GamePhase.ready;
+      newHighScore = false;
+      isDailyRun = false;
+      showIntro = true;
+      particleSystem.clear();
+      floatingLabels.clear();
+      focusNode.requestFocus();
+    });
+    _startDemo();
+  }
+
+  /// Android's back gesture: pause a run, leave a finished or paused one,
+  /// and only close the app from the intro.
+  void _onSystemBack() {
+    if (showIntro) return;
+    if (engine.phase == GamePhase.running) {
+      setState(() {
+        engine.pause();
+        ticker?.cancel();
+      });
+      return;
+    }
+    _returnToIntro();
+  }
+
   void _onTurn(Direction direction) {
     setState(() {
       final wasReady = engine.phase == GamePhase.ready;
@@ -377,37 +501,25 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     });
   }
 
-  String get actionLabel => switch (engine.phase) {
-    GamePhase.ready => 'PLAY',
-    GamePhase.running => 'PAUSE',
-    GamePhase.paused => 'RESUME',
-    GamePhase.gameOver => 'PLAY AGAIN',
-  };
+  void _onExitToMenu() => _returnToIntro();
 
-  void _onExitToMenu() {
-    setState(() {
-      ticker?.cancel();
-      engine = widget.engineFactory?.call() ?? SnakeEngine(mode: selectedMode);
-      engine.reset();
-      engine.phase = GamePhase.ready;
-      newHighScore = false;
-      isDailyRun = false;
-      particleSystem.clear();
-      floatingLabels.clear();
-      focusNode.requestFocus();
-    });
-  }
-
-  /// Starts today's daily challenge: a Classic run seeded so every
-  /// player sees the same food layout on the same calendar day.
+  /// Starts today's daily challenge: a Classic run seeded from the
+  /// date, so the same device gets the same board all day.
+  ///
+  /// Note the grid now follows the screen, so two different-sized
+  /// phones no longer see an identical layout. That only starts to
+  /// matter if daily scores are ever compared across devices.
   void _startDailyChallenge() {
+    _stopDemo();
     setState(() {
       ticker?.cancel();
       final seed = DailyChallenge.seedForDay(_dailyDayNumber);
-      engine = SnakeEngine(mode: GameMode.classic, random: Random(seed));
+      engine = _newEngine(mode: GameMode.classic, random: Random(seed));
+      engine.mode = GameMode.classic;
       selectedMode = GameMode.classic;
       isDailyRun = true;
       newHighScore = false;
+      showIntro = false;
       particleSystem.clear();
       floatingLabels.clear();
       engine.start();
@@ -436,6 +548,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   @override
   void dispose() {
     ticker?.cancel();
+    demoTicker?.cancel();
     for (final t in _labelTimers) {
       t.cancel();
     }
@@ -506,35 +619,127 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
         autofocus: true,
         child: Scaffold(
           backgroundColor: RetroColors.voidBg,
-          body: DecoratedBox(
-            decoration: const BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(0, -0.2),
-                radius: 1.2,
-                colors: [Color(0xFF10130F), RetroColors.voidBg],
-              ),
+          body: PopScope(
+            // Back belongs to the game first: pause a run, leave a
+            // finished one, and only then close the app.
+            canPop: showIntro,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop) _onSystemBack();
+            },
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                _viewport = constraints.biggest;
+                _topInset = MediaQuery.paddingOf(context).top;
+                return showIntro ? _buildIntro() : _buildGameScreen();
+              },
             ),
-            child: SafeArea(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return Center(
-                    child: FittedBox(
-                      fit: BoxFit.contain,
-                      child: SizedBox(
-                        width: 440,
-                        height: 800,
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: _buildCabinet(),
-                        ),
-                      ),
-                    ),
-                  );
-                },
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The intro: cabinet chrome, the attract demo playing in its screen,
+  /// and everything you pick before a run.
+  Widget _buildIntro() {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: RadialGradient(
+          center: Alignment(0, -0.2),
+          radius: 1.2,
+          colors: [Color(0xFF10130F), RetroColors.voidBg],
+        ),
+      ),
+      child: SafeArea(
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.contain,
+            child: SizedBox(
+              width: 440,
+              height: 800,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: _buildCabinet(),
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// The game: board edge to edge, a thin HUD over it, gestures only.
+  Widget _buildGameScreen() {
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          // The HUD gets its own band rather than floating over the
+          // playfield — otherwise the snake runs underneath the score.
+          SizedBox(height: _hudHeight, child: _buildGameHud()),
+          Expanded(child: _buildBoardStack()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGameHud() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+      decoration: const BoxDecoration(
+        color: RetroColors.voidBg,
+        border: Border(
+          bottom: BorderSide(color: RetroColors.phosphorDim, width: 1.5),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ScoreReadout(label: 'SCORE', value: engine.score),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 2,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (engine.mode == GameMode.adventure)
+                  _MiniStat(label: 'LVL', value: engine.level.toString()),
+                if (engine.comboCount > 1)
+                  _MiniStat(
+                    label: 'COMBO',
+                    value: '×${engine.comboMultiplier.toStringAsFixed(1)}',
+                    color: RetroColors.combo,
+                  ),
+                if (engine.hasShield)
+                  const _MiniStat(
+                    label: '',
+                    value: '🛡',
+                    color: RetroColors.shieldCyan,
+                  ),
+                if (engine.magnetActive)
+                  const _MiniStat(
+                    label: '',
+                    value: '🧲',
+                    color: RetroColors.magnetPink,
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 14),
+          ScoreReadout(label: 'HI', value: highScore, highlight: true),
+          const SizedBox(width: 10),
+          _PauseButton(
+            onPressed: () {
+              if (engine.phase != GamePhase.running) return;
+              setState(() {
+                engine.pause();
+                ticker?.cancel();
+              });
+            },
+          ),
+        ],
       ),
     );
   }
@@ -595,77 +800,61 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
             ),
             const SizedBox(height: 12),
 
-            // ── Score bar ──
-            _buildScoreBar(),
-            const SizedBox(height: 10),
+            // ── Attract demo with the menu over it ──
+            Expanded(child: _buildIntroScreenArea()),
+            const SizedBox(height: 14),
 
-            // ── Board area ──
-            Expanded(child: _buildBoardArea()),
-            const SizedBox(height: 12),
-
-            // ── Compact Centered Arcade Controls ──
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF140E0A), Color(0xFF0C0704)],
-                ),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: RetroColors.cabinetRim.withValues(alpha: 0.8),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.45),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Centered Cross D-Pad
-                  ArcadeDpad(onTurn: _onTurn),
-                  const SizedBox(height: 8),
-
-                  // Centered Action Buttons Row
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ArcadeActionButton(
-                        label: actionLabel,
-                        onPressed: _onPrimary,
-                      ),
-                      if (engine.phase != GamePhase.ready) ...[
-                        const SizedBox(width: 10),
-                        SecondaryArcadeButton(
-                          label: 'MENU',
-                          color: RetroColors.amber,
-                          onPressed: _onExitToMenu,
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-
-                  // Centered Hint Text
-                  Text(
-                    engine.phase == GamePhase.running
-                        ? 'ARROWS / WASD  ·  ESC / M: MENU'
-                        : 'ARROWS / WASD  ·  SWIPE',
-                    textAlign: TextAlign.center,
-                    style: RetroText.pixel(size: 7, color: RetroColors.metal),
-                  ),
-                ],
-              ),
+            // ── Start ──
+            ArcadeActionButton(label: 'PLAY', onPressed: _enterGame),
+            const SizedBox(height: 8),
+            Text(
+              'SWIPE TO STEER  ·  ARROWS / WASD',
+              textAlign: TextAlign.center,
+              style: RetroText.pixel(size: 7, color: RetroColors.metal),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  /// The cabinet's screen on the intro: the demo snake playing itself,
+  /// with the mode picker and friends laid over it.
+  Widget _buildIntroScreenArea() {
+    final demo = demoEngine;
+    return AnimatedBuilder(
+      animation: pulse,
+      builder: (context, _) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (demo != null)
+              SnakeBoard(
+                engine: demo,
+                pulse: pulse.value,
+                tickProgress: _demoTickProgress,
+              ),
+            _IntroPanel(
+              blinkOn: pulse.value > 0.4,
+              selectedMode: selectedMode,
+              onModeChanged: (mode) {
+                setState(() {
+                  selectedMode = mode;
+                  engine.mode = mode;
+                });
+              },
+              readyTab: readyTab,
+              onReadyTabChanged: (tab) => setState(() => readyTab = tab),
+              stats: stats,
+              topScores: topScores,
+              dailyDayNumber: _dailyDayNumber,
+              dailyState: dailyState,
+              playedDailyToday: _playedDailyToday,
+              onStartDaily: _startDailyChallenge,
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -705,76 +894,19 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildScoreBar() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        ScoreReadout(label: 'SCORE', value: engine.score),
-        if (engine.mode == GameMode.adventure)
-          _MiniStat(label: 'LVL', value: engine.level.toString()),
-        if (engine.phase == GamePhase.running)
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                engine.pause();
-                ticker?.cancel();
-              });
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: RetroColors.screen,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: RetroColors.amberDim, width: 1),
-              ),
-              child: Text(
-                'SWITCH MODE',
-                style: RetroText.pixel(size: 6, color: RetroColors.amber),
-              ),
-            ),
-          ),
-        if (engine.comboCount > 1)
-          _MiniStat(
-            label: 'COMBO',
-            value: '×${engine.comboMultiplier.toStringAsFixed(1)}',
-            color: RetroColors.combo,
-          ),
-        if (engine.hasShield)
-          const _MiniStat(
-            label: '',
-            value: '🛡',
-            color: RetroColors.shieldCyan,
-          ),
-        if (engine.magnetActive)
-          const _MiniStat(
-            label: '',
-            value: '🧲',
-            color: RetroColors.magnetPink,
-          ),
-        ScoreReadout(label: 'HI', value: highScore, highlight: true),
-      ],
-    );
-  }
-
-  Widget _buildBoardArea() {
+  Widget _buildBoardStack() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // The board is an AspectRatio centred in this area — measure it
-        // so particles and popups can be placed on the right cell.
-        final aspect = engine.columns / engine.rows;
-        final width = min(constraints.maxWidth, constraints.maxHeight * aspect);
-        final height = width / aspect;
-        _boardSize = Size(width, height);
-        _boardOffset = Offset(
-          (constraints.maxWidth - width) / 2,
-          (constraints.maxHeight - height) / 2,
-        );
-        return _buildBoardStack();
+        // The board fills this area edge to edge, so its geometry is
+        // simply the area itself — particles and popups ride on it.
+        _boardSize = constraints.biggest;
+        _boardOffset = Offset.zero;
+        return _buildBoardLayers();
       },
     );
   }
 
-  Widget _buildBoardStack() {
+  Widget _buildBoardLayers() {
     return AnimatedBuilder(
       animation: pulse,
       builder: (context, _) {
@@ -789,6 +921,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                 tickProgress: _tickProgress,
                 particles: particleSystem,
                 onSwipe: _onTurn,
+                fullBleed: true,
               ),
             ),
             // Level-up flash, over the board but under the popups.
@@ -801,48 +934,17 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
               ),
             for (final label in floatingLabels)
               _FloatingLabelView(key: ValueKey(label.id), label: label),
-            if (engine.phase != GamePhase.running)
+            if (engine.phase == GamePhase.paused ||
+                engine.phase == GamePhase.gameOver)
               _Overlay(
                 phase: engine.phase,
                 engine: engine,
                 won: engine.won,
                 newHighScore: newHighScore,
-                blinkOn: pulse.value > 0.4,
-                selectedMode: selectedMode,
-                onModeChanged: (mode) {
-                  // Tapping the mode that's already active shouldn't
-                  // wipe a paused run — only an actual mode change
-                  // resets the game.
-                  if (mode == selectedMode &&
-                      engine.phase == GamePhase.paused) {
-                    return;
-                  }
-                  setState(() {
-                    selectedMode = mode;
-                    ticker?.cancel();
-                    engine =
-                        widget.engineFactory?.call() ??
-                        SnakeEngine(mode: selectedMode);
-                    engine.mode = selectedMode;
-                    engine.reset();
-                    engine.phase = GamePhase.ready;
-                    newHighScore = false;
-                    isDailyRun = false;
-                    particleSystem.clear();
-                    floatingLabels.clear();
-                    focusNode.requestFocus();
-                  });
-                },
-                topScores: topScores,
-                stats: stats,
                 isDailyRun: isDailyRun,
                 dailyDayNumber: _dailyDayNumber,
                 dailyState: dailyState,
-                playedDailyToday: _playedDailyToday,
-                onStartDaily: _startDailyChallenge,
                 onShare: _shareScore,
-                readyTab: readyTab,
-                onReadyTabChanged: (tab) => setState(() => readyTab = tab),
                 onResume: _onPrimary,
                 onExitToMenu: _onExitToMenu,
               ),
@@ -946,7 +1048,122 @@ class _MiniStat extends StatelessWidget {
   }
 }
 
-// ─── Overlay (ready / paused / game-over) ───────────
+
+// ─── Pause button (in-game HUD) ─────────────────────
+
+/// Deliberately a small dedicated target rather than tap-anywhere: the
+/// whole board is a swipe surface, so a stray tap must never pause.
+class _PauseButton extends StatelessWidget {
+  const _PauseButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Pause',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onPressed();
+        },
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: RetroColors.screen.withValues(alpha: 0.75),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: RetroColors.phosphorDim, width: 1.4),
+          ),
+          child: const Icon(
+            Icons.pause,
+            size: 20,
+            color: RetroColors.phosphor,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Intro panel (over the attract demo) ────────────
+
+class _IntroPanel extends StatelessWidget {
+  const _IntroPanel({
+    required this.blinkOn,
+    required this.selectedMode,
+    required this.onModeChanged,
+    required this.readyTab,
+    required this.onReadyTabChanged,
+    required this.stats,
+    required this.topScores,
+    required this.dailyDayNumber,
+    required this.dailyState,
+    required this.playedDailyToday,
+    required this.onStartDaily,
+  });
+
+  final bool blinkOn;
+  final GameMode selectedMode;
+  final ValueChanged<GameMode> onModeChanged;
+  final ReadyTab readyTab;
+  final ValueChanged<ReadyTab> onReadyTabChanged;
+  final GameStats stats;
+  final List<ScoreEntry> topScores;
+  final int dailyDayNumber;
+  final DailyState dailyState;
+  final bool playedDailyToday;
+  final VoidCallback onStartDaily;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      // Dark enough to read against, sheer enough to keep the demo
+      // visible behind it.
+      color: const Color(0xCC03140A),
+      child: Center(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Opacity(
+                opacity: blinkOn ? 1 : 0.35,
+                child: Text(
+                  'PRESS START',
+                  textAlign: TextAlign.center,
+                  style: RetroText.pixel(size: 14, color: RetroColors.amber),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _ReadyTabBar(selected: readyTab, onChanged: onReadyTabChanged),
+              const SizedBox(height: 14),
+              switch (readyTab) {
+                ReadyTab.modes => _ReadyModesTab(
+                  selectedMode: selectedMode,
+                  onModeChanged: onModeChanged,
+                  dailyDayNumber: dailyDayNumber,
+                  dailyState: dailyState,
+                  playedDailyToday: playedDailyToday,
+                  onStartDaily: onStartDaily,
+                ),
+                ReadyTab.how => const _ReadyHowTab(),
+                ReadyTab.stats => _ReadyStatsTab(
+                  stats: stats,
+                  topScores: topScores,
+                  dailyState: dailyState,
+                ),
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Overlay (paused / game-over) ───────────────────
 
 class _Overlay extends StatelessWidget {
   const _Overlay({
@@ -954,147 +1171,89 @@ class _Overlay extends StatelessWidget {
     required this.engine,
     required this.won,
     required this.newHighScore,
-    required this.blinkOn,
-    required this.selectedMode,
-    required this.onModeChanged,
-    required this.topScores,
-    required this.stats,
     required this.isDailyRun,
     required this.dailyDayNumber,
     required this.dailyState,
-    required this.playedDailyToday,
-    required this.onStartDaily,
     required this.onShare,
-    required this.readyTab,
-    required this.onReadyTabChanged,
-    this.onResume,
-    this.onExitToMenu,
+    required this.onResume,
+    required this.onExitToMenu,
   });
 
   final GamePhase phase;
   final SnakeEngine engine;
   final bool won;
   final bool newHighScore;
-  final bool blinkOn;
-  final GameMode selectedMode;
-  final ValueChanged<GameMode> onModeChanged;
-  final List<ScoreEntry> topScores;
-  final GameStats stats;
   final bool isDailyRun;
   final int dailyDayNumber;
   final DailyState dailyState;
-  final bool playedDailyToday;
-  final VoidCallback onStartDaily;
   final VoidCallback onShare;
-  final ReadyTab readyTab;
-  final ValueChanged<ReadyTab> onReadyTabChanged;
-  final VoidCallback? onResume;
-  final VoidCallback? onExitToMenu;
+  final VoidCallback onResume;
+  final VoidCallback onExitToMenu;
 
   @override
   Widget build(BuildContext context) {
-    final title = switch (phase) {
-      GamePhase.ready => 'PRESS START',
-      GamePhase.paused => 'PAUSED',
-      GamePhase.gameOver => won ? 'YOU WIN' : 'GAME OVER',
-      GamePhase.running => '',
-    };
+    final isOver = phase == GamePhase.gameOver;
+    final title = isOver ? (won ? 'YOU WIN' : 'GAME OVER') : 'PAUSED';
 
-    return IgnorePointer(
-      ignoring: phase == GamePhase.running,
-      child: ColoredBox(
-        color: const Color(0x9903140A),
+    return ColoredBox(
+      color: const Color(0xE603140A),
+      child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Title.
-                Opacity(
-                  opacity: phase == GamePhase.ready && !blinkOn ? 0.35 : 1,
-                  child: Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: RetroText.pixel(size: 14, color: RetroColors.amber),
-                  ),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: RetroText.pixel(size: 16, color: RetroColors.amber),
                 ),
-
-                // ── Ready: one tab at a time, so nothing is crammed ──
-                if (phase == GamePhase.ready) ...[
+                if (isOver) ...[
                   const SizedBox(height: 14),
-                  _ReadyTabBar(selected: readyTab, onChanged: onReadyTabChanged),
-                  const SizedBox(height: 14),
-                  switch (readyTab) {
-                    ReadyTab.modes => _ReadyModesTab(
-                      selectedMode: selectedMode,
-                      onModeChanged: onModeChanged,
-                      dailyDayNumber: dailyDayNumber,
-                      dailyState: dailyState,
-                      playedDailyToday: playedDailyToday,
-                      onStartDaily: onStartDaily,
-                    ),
-                    ReadyTab.how => const _ReadyHowTab(),
-                    ReadyTab.stats => _ReadyStatsTab(
-                      stats: stats,
-                      topScores: topScores,
-                      dailyState: dailyState,
-                    ),
-                  },
-                ],
-
-                // ── Paused: mode selector (picking a new mode restarts) ──
-                if (phase == GamePhase.paused) ...[
-                  const SizedBox(height: 16),
-                  ModeSelector(
-                    selected: selectedMode,
-                    onChanged: onModeChanged,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'PICKING A NEW MODE RESTARTS THE RUN',
-                    textAlign: TextAlign.center,
-                    style: RetroText.pixel(size: 7, color: RetroColors.metal),
-                  ),
-                ],
-
-                // ── Game over: score breakdown & mode selector ──
-                if (phase == GamePhase.gameOver) ...[
-                  const SizedBox(height: 12),
                   Text(
                     engine.score.toString().padLeft(5, '0'),
                     style: RetroText.pixel(
-                      size: 16,
+                      size: 18,
                       color: RetroColors.phosphor,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   _ScoreBreakdown(engine: engine),
                   if (isDailyRun) ...[
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     Text(
                       'DAILY #$dailyDayNumber  ·  STREAK ${dailyState.currentStreak}',
-                      style: RetroText.pixel(size: 8, color: RetroColors.zenBlue),
+                      style: RetroText.pixel(
+                        size: 8,
+                        color: RetroColors.zenBlue,
+                      ),
                     ),
                   ],
                   if (newHighScore) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     Text(
                       'NEW HISCORE',
                       style: RetroText.pixel(size: 11, color: RetroColors.food),
                     ),
                   ],
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 16),
                   SecondaryArcadeButton(
                     label: 'SHARE SCORE',
                     color: RetroColors.zenBlue,
                     onPressed: onShare,
                   ),
-                  const SizedBox(height: 16),
-                  ModeSelector(
-                    selected: selectedMode,
-                    onChanged: onModeChanged,
-                  ),
                 ],
+                const SizedBox(height: 22),
+                ArcadeActionButton(
+                  label: isOver ? 'PLAY AGAIN' : 'RESUME',
+                  onPressed: onResume,
+                ),
+                const SizedBox(height: 12),
+                SecondaryArcadeButton(
+                  label: 'MENU',
+                  color: RetroColors.amber,
+                  onPressed: onExitToMenu,
+                ),
               ],
             ),
           ),
