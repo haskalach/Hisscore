@@ -38,6 +38,17 @@ class _SnakeBoardState extends State<SnakeBoard> {
 
   Offset? _dragOrigin;
 
+  /// Grid, scanlines and vignette never change between frames, so they
+  /// are rasterized once per size instead of ~160 draw calls every
+  /// frame. Held here because painters are rebuilt on every paint.
+  final BoardLayerCache _staticLayers = BoardLayerCache();
+
+  @override
+  void dispose() {
+    _staticLayers.dispose();
+    super.dispose();
+  }
+
   void _onDragUpdate(DragUpdateDetails details) {
     final origin = _dragOrigin;
     if (origin == null) return;
@@ -82,6 +93,7 @@ class _SnakeBoardState extends State<SnakeBoard> {
                 pulse: widget.pulse,
                 tickProgress: widget.tickProgress,
                 particles: widget.particles,
+                staticLayers: _staticLayers,
               ),
               child: const SizedBox.expand(),
             ),
@@ -92,39 +104,77 @@ class _SnakeBoardState extends State<SnakeBoard> {
   }
 }
 
+/// Caches the board's unchanging layers (grid, scanlines, vignette) as a
+/// recorded picture, rebuilt only when the canvas size changes.
+class BoardLayerCache {
+  final _CachedPicture _backdrop = _CachedPicture();
+  final _CachedPicture _overlay = _CachedPicture();
+
+  ui.Picture pictureFor(Size size, void Function(Canvas) draw) =>
+      _backdrop.forSize(size, draw);
+
+  ui.Picture overlayFor(Size size, void Function(Canvas) draw) =>
+      _overlay.forSize(size, draw);
+
+  void dispose() {
+    _backdrop.dispose();
+    _overlay.dispose();
+  }
+}
+
+class _CachedPicture {
+  ui.Picture? _picture;
+  Size? _size;
+
+  ui.Picture forSize(Size size, void Function(Canvas) draw) {
+    final cached = _picture;
+    if (cached != null && _size == size) {
+      return cached;
+    }
+    cached?.dispose();
+    final recorder = ui.PictureRecorder();
+    draw(Canvas(recorder));
+    final picture = recorder.endRecording();
+    _picture = picture;
+    _size = size;
+    return picture;
+  }
+
+  void dispose() {
+    _picture?.dispose();
+    _picture = null;
+    _size = null;
+  }
+}
+
 class SnakeBoardPainter extends CustomPainter {
   SnakeBoardPainter({
     required this.engine,
     required this.pulse,
     this.tickProgress = 1.0,
     this.particles,
+    this.staticLayers,
   });
 
   final SnakeEngine engine;
   final double pulse;
   final double tickProgress;
   final ParticleSystem? particles;
+  final BoardLayerCache? staticLayers;
 
   @override
   void paint(Canvas canvas, Size size) {
     final cellW = size.width / engine.columns;
     final cellH = size.height / engine.rows;
 
-    // ── Background ──
-    final bg = Paint()..color = RetroColors.screen;
-    canvas.drawRect(Offset.zero & size, bg);
-
-    // ── Grid lines ──
-    final gridPaint = Paint()
-      ..color = RetroColors.grid
-      ..strokeWidth = 0.8;
-    for (var x = 1; x < engine.columns; x++) {
-      final dx = x * cellW;
-      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), gridPaint);
-    }
-    for (var y = 1; y < engine.rows; y++) {
-      final dy = y * cellH;
-      canvas.drawLine(Offset(0, dy), Offset(size.width, dy), gridPaint);
+    // ── Background + grid (cached) ──
+    final cache = staticLayers;
+    if (cache != null) {
+      canvas.drawPicture(
+        cache.pictureFor(size, (c) => _paintBackdrop(c, size, cellW, cellH)),
+      );
+    } else {
+      _paintBackdrop(canvas, size, cellW, cellH);
     }
 
     // ── Obstacles ──
@@ -170,11 +220,17 @@ class SnakeBoardPainter extends CustomPainter {
 
     // ── Snake body (gradient head → tail) ──
     for (var i = engine.snake.length - 1; i >= 0; i--) {
-      final rect = _segmentRect(i, cellW, cellH).deflate(cellW * 0.08);
       final isHead = i == 0;
       final t = engine.snake.length > 1
           ? i / (engine.snake.length - 1)
           : 0.0;
+      // Taper toward the tail so the body reads as a snake rather than
+      // a chain of identical blocks.
+      final rect = _segmentRect(
+        i,
+        cellW,
+        cellH,
+      ).deflate(cellW * (0.08 + 0.14 * t));
 
       final bodyColor = isHead
           ? RetroColors.phosphorHot
@@ -197,10 +253,12 @@ class SnakeBoardPainter extends CustomPainter {
         if (dx.abs() <= cellW * 1.5 &&
             dy.abs() <= cellH * 1.5 &&
             (dx != 0 || dy != 0)) {
+          // Connectors taper with the body they join.
+          final taper = 1.0 - 0.28 * t;
           final connRect = Rect.fromCenter(
             center: Offset((here.dx + behind.dx) / 2, (here.dy + behind.dy) / 2),
-            width: dx != 0 ? cellW * 0.6 : cellW * 0.65,
-            height: dy != 0 ? cellH * 0.6 : cellH * 0.65,
+            width: (dx != 0 ? cellW * 0.6 : cellW * 0.65) * taper,
+            height: (dy != 0 ? cellH * 0.6 : cellH * 0.65) * taper,
           );
           final connColor = Color.lerp(
             RetroColors.phosphor,
@@ -216,15 +274,17 @@ class SnakeBoardPainter extends CustomPainter {
 
       if (isHead) {
         _drawEyes(canvas, rect, cellW);
-        // Shield indicator on head.
+        // Shield indicator on head — breathes so it reads as active.
         if (engine.hasShield) {
           final shieldPaint = Paint()
-            ..color = RetroColors.shieldCyan.withValues(alpha: 0.35)
+            ..color = RetroColors.shieldCyan.withValues(
+              alpha: 0.25 + pulse * 0.45,
+            )
             ..style = PaintingStyle.stroke
             ..strokeWidth = 2;
           canvas.drawRRect(
             RRect.fromRectAndRadius(
-              rect.inflate(cellW * 0.1),
+              rect.inflate(cellW * (0.08 + pulse * 0.06)),
               Radius.circular(cellW * 0.22),
             ),
             shieldPaint,
@@ -242,13 +302,40 @@ class SnakeBoardPainter extends CustomPainter {
     particles?.update();
     particles?.paint(canvas);
 
-    // ── Scanlines ──
+    // ── CRT overlay: scanlines + vignette (cached) ──
+    if (cache != null) {
+      canvas.drawPicture(
+        cache.overlayFor(size, (c) => _paintCrtOverlay(c, size)),
+      );
+    } else {
+      _paintCrtOverlay(canvas, size);
+    }
+  }
+
+  /// Screen fill and grid — identical every frame for a given size.
+  void _paintBackdrop(Canvas canvas, Size size, double cellW, double cellH) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = RetroColors.screen);
+
+    final gridPaint = Paint()
+      ..color = RetroColors.grid
+      ..strokeWidth = 0.8;
+    for (var x = 1; x < engine.columns; x++) {
+      final dx = x * cellW;
+      canvas.drawLine(Offset(dx, 0), Offset(dx, size.height), gridPaint);
+    }
+    for (var y = 1; y < engine.rows; y++) {
+      final dy = y * cellH;
+      canvas.drawLine(Offset(0, dy), Offset(size.width, dy), gridPaint);
+    }
+  }
+
+  /// Scanlines and vignette — also fixed for a given size.
+  void _paintCrtOverlay(Canvas canvas, Size size) {
     final scan = Paint()..color = RetroColors.scanline;
     for (var y = 0.0; y < size.height; y += 3) {
       canvas.drawRect(Rect.fromLTWH(0, y, size.width, 1.2), scan);
     }
 
-    // ── Vignette ──
     final vignetteRect = Offset.zero & size;
     final vignettePaint = Paint()
       ..shader = ui.Gradient.radial(
@@ -262,15 +349,27 @@ class SnakeBoardPainter extends CustomPainter {
 
   // ─── Food rendering per type ──────────────────────
 
+  /// How long a pickup takes to scale up after spawning.
+  static const double _spawnPopMs = 180;
+
   void _paintFood(Canvas canvas, FoodItem item, double cellW, double cellH) {
     final rect = _cell(item.position, cellW, cellH);
     final center = rect.center;
     final r = rect.shortestSide / 2;
 
     // Pulsing animation factor (only for permanent foods).
-    final foodScale = item.lifetimeMs == null
+    var foodScale = item.lifetimeMs == null
         ? 0.72 + (pulse * 0.14)
         : 0.60 + (item.lifeFraction(engine.elapsedMs) * 0.26);
+
+    // Pop in over the first moments on screen, so pickups arrive
+    // instead of just appearing.
+    final age = item.ageMs(engine.elapsedMs);
+    if (age < _spawnPopMs) {
+      final t = (age / _spawnPopMs).clamp(0.0, 1.0);
+      // Overshoot slightly, then settle.
+      foodScale *= 0.4 + 0.75 * t - 0.15 * t * t;
+    }
 
     switch (item.type) {
       case FoodType.apple:

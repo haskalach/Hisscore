@@ -10,7 +10,6 @@ abstract final class RetroColors {
   static const cabinetRim = Color(0xFF3A2A1C);
   static const cabinetHighlight = Color(0xFF5A4A38);
   static const metal = Color(0xFF8A8478);
-  static const rivet = Color(0xFF6A6054);
 
   // ─── CRT screen ────────────────────────────────────
   static const screen = Color(0xFF03140A);
@@ -21,7 +20,6 @@ abstract final class RetroColors {
   static const phosphor = Color(0xFF7CFF6B);
   static const phosphorDim = Color(0xFF2E8A3A);
   static const phosphorHot = Color(0xFFD4FF9A);
-  static const phosphorGlow = Color(0x3300FF66);
   static const snakeTail = Color(0xFF1A6030);
 
   // ─── UI accents ────────────────────────────────────

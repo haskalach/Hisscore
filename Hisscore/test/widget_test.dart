@@ -185,6 +185,50 @@ void main() {
     await tester.pump(const Duration(milliseconds: 240));
     expect(engine.direction, Direction.left);
   });
+
+  testWidgets('ready screen opens on the modes tab', (tester) async {
+    await tester.pumpWidget(
+      HisscoreApp(highScoreStore: InMemoryHighScoreStore()),
+    );
+    await tester.pump();
+
+    expect(find.text('MODES'), findsOneWidget);
+    expect(find.text('HOW'), findsOneWidget);
+    expect(find.text('STATS'), findsOneWidget);
+    // Modes tab content is showing; other tabs' content is not.
+    expect(find.text('SELECT MODE'), findsOneWidget);
+    expect(find.text('PICKUPS'), findsNothing);
+  });
+
+  testWidgets('HOW tab shows the pickup legend and controls', (tester) async {
+    await tester.pumpWidget(
+      HisscoreApp(highScoreStore: InMemoryHighScoreStore()),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('HOW'));
+    await tester.pump();
+
+    expect(find.text('PICKUPS'), findsOneWidget);
+    expect(find.text('CONTROLS'), findsOneWidget);
+    expect(find.text('APPLE'), findsOneWidget);
+    // The modes tab's content stepped aside.
+    expect(find.text('SELECT MODE'), findsNothing);
+  });
+
+  testWidgets('STATS tab reports when there is nothing to show yet', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      HisscoreApp(highScoreStore: InMemoryHighScoreStore()),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('STATS'));
+    await tester.pump();
+
+    expect(find.text('NO RUNS YET'), findsOneWidget);
+  });
 }
 
 SnakeBoardPainter _painterOf(WidgetTester tester) {

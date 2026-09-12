@@ -50,6 +50,9 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   // Mode selection.
   GameMode selectedMode = GameMode.classic;
 
+  // Which ready-screen tab is showing.
+  ReadyTab readyTab = ReadyTab.modes;
+
   // Floating popup text (score gains, combos, level-ups).
   final List<_FloatingLabel> floatingLabels = [];
   final List<Timer> _labelTimers = [];
@@ -58,6 +61,20 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
   // Movement interpolation: when the current tick started, so the board
   // can animate the snake between cells instead of jumping.
   DateTime _lastTickAt = DateTime.now();
+
+  /// When the last level-up flash fired, so it can fade out on its own.
+  DateTime? _levelFlashAt;
+  static const _levelFlashDuration = Duration(milliseconds: 420);
+
+  /// 1.0 right after a level advance, fading to 0.
+  double get _levelFlashOpacity {
+    final at = _levelFlashAt;
+    if (at == null) return 0;
+    final elapsed = DateTime.now().difference(at).inMilliseconds;
+    final total = _levelFlashDuration.inMilliseconds;
+    if (elapsed >= total) return 0;
+    return 1.0 - elapsed / total;
+  }
 
   /// Measured board geometry, so particles and popups land on the cell
   /// they belong to instead of an assumed board size.
@@ -234,6 +251,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
             big: true,
           );
           shakeController.shake(intensity: 3);
+          _levelFlashAt = DateTime.now();
           unawaited(soundManager.playLevelUp());
         }
 
@@ -640,7 +658,7 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                         ? 'ARROWS / WASD  ·  ESC / M: MENU'
                         : 'ARROWS / WASD  ·  SWIPE',
                     textAlign: TextAlign.center,
-                    style: RetroText.pixel(size: 5.5, color: RetroColors.metal),
+                    style: RetroText.pixel(size: 7, color: RetroColors.metal),
                   ),
                 ],
               ),
@@ -773,6 +791,14 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                 onSwipe: _onTurn,
               ),
             ),
+            // Level-up flash, over the board but under the popups.
+            if (_levelFlashOpacity > 0)
+              IgnorePointer(
+                child: Opacity(
+                  opacity: _levelFlashOpacity * 0.5,
+                  child: const ColoredBox(color: RetroColors.levelFlash),
+                ),
+              ),
             for (final label in floatingLabels)
               _FloatingLabelView(key: ValueKey(label.id), label: label),
             if (engine.phase != GamePhase.running)
@@ -815,6 +841,8 @@ class _GamePageState extends State<GamePage> with TickerProviderStateMixin {
                 playedDailyToday: _playedDailyToday,
                 onStartDaily: _startDailyChallenge,
                 onShare: _shareScore,
+                readyTab: readyTab,
+                onReadyTabChanged: (tab) => setState(() => readyTab = tab),
                 onResume: _onPrimary,
                 onExitToMenu: _onExitToMenu,
               ),
@@ -937,6 +965,8 @@ class _Overlay extends StatelessWidget {
     required this.playedDailyToday,
     required this.onStartDaily,
     required this.onShare,
+    required this.readyTab,
+    required this.onReadyTabChanged,
     this.onResume,
     this.onExitToMenu,
   });
@@ -956,6 +986,8 @@ class _Overlay extends StatelessWidget {
   final bool playedDailyToday;
   final VoidCallback onStartDaily;
   final VoidCallback onShare;
+  final ReadyTab readyTab;
+  final ValueChanged<ReadyTab> onReadyTabChanged;
   final VoidCallback? onResume;
   final VoidCallback? onExitToMenu;
 
@@ -987,30 +1019,27 @@ class _Overlay extends StatelessWidget {
                   ),
                 ),
 
-                // ── Ready: mode selector, food legend, stats, best runs ──
+                // ── Ready: one tab at a time, so nothing is crammed ──
                 if (phase == GamePhase.ready) ...[
-                  const SizedBox(height: 16),
-                  ModeSelector(
-                    selected: selectedMode,
-                    onChanged: onModeChanged,
-                  ),
                   const SizedBox(height: 14),
-                  const FoodLegend(),
-                  if (stats.gamesPlayed > 0) ...[
-                    const SizedBox(height: 12),
-                    _StatsRow(stats: stats),
-                  ],
-                  if (topScores.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    _TopScoresList(scores: topScores),
-                  ],
-                  const SizedBox(height: 16),
-                  _DailyChallengeCard(
-                    dayNumber: dailyDayNumber,
-                    dailyState: dailyState,
-                    playedToday: playedDailyToday,
-                    onStart: onStartDaily,
-                  ),
+                  _ReadyTabBar(selected: readyTab, onChanged: onReadyTabChanged),
+                  const SizedBox(height: 14),
+                  switch (readyTab) {
+                    ReadyTab.modes => _ReadyModesTab(
+                      selectedMode: selectedMode,
+                      onModeChanged: onModeChanged,
+                      dailyDayNumber: dailyDayNumber,
+                      dailyState: dailyState,
+                      playedDailyToday: playedDailyToday,
+                      onStartDaily: onStartDaily,
+                    ),
+                    ReadyTab.how => const _ReadyHowTab(),
+                    ReadyTab.stats => _ReadyStatsTab(
+                      stats: stats,
+                      topScores: topScores,
+                      dailyState: dailyState,
+                    ),
+                  },
                 ],
 
                 // ── Paused: mode selector (picking a new mode restarts) ──
@@ -1024,7 +1053,7 @@ class _Overlay extends StatelessWidget {
                   Text(
                     'PICKING A NEW MODE RESTARTS THE RUN',
                     textAlign: TextAlign.center,
-                    style: RetroText.pixel(size: 5, color: RetroColors.metal),
+                    style: RetroText.pixel(size: 7, color: RetroColors.metal),
                   ),
                 ],
 
@@ -1044,27 +1073,23 @@ class _Overlay extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       'DAILY #$dailyDayNumber  ·  STREAK ${dailyState.currentStreak}',
-                      style: RetroText.pixel(size: 7, color: RetroColors.zenBlue),
+                      style: RetroText.pixel(size: 8, color: RetroColors.zenBlue),
                     ),
                   ],
                   if (newHighScore) ...[
                     const SizedBox(height: 10),
                     Text(
                       'NEW HISCORE',
-                      style: RetroText.pixel(size: 10, color: RetroColors.food),
+                      style: RetroText.pixel(size: 11, color: RetroColors.food),
                     ),
                   ],
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   SecondaryArcadeButton(
                     label: 'SHARE SCORE',
                     color: RetroColors.zenBlue,
                     onPressed: onShare,
                   ),
-                  if (topScores.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    _TopScoresList(scores: topScores),
-                  ],
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 16),
                   ModeSelector(
                     selected: selectedMode,
                     onChanged: onModeChanged,
@@ -1157,16 +1182,196 @@ class _StatsRow extends StatelessWidget {
             children: [
               Text(
                 items[i].label,
-                style: RetroText.pixel(size: 5, color: RetroColors.metal),
+                style: RetroText.pixel(size: 7, color: RetroColors.metal),
               ),
               const SizedBox(height: 2),
               Text(
                 items[i].value,
-                style: RetroText.pixel(size: 7, color: RetroColors.phosphorDim),
+                style: RetroText.pixel(size: 9, color: RetroColors.phosphorDim),
               ),
             ],
           ),
         ],
+      ],
+    );
+  }
+}
+
+// ─── Ready screen tabs ──────────────────────────────
+
+/// The ready screen used to stack modes, legend, stats and scores in one
+/// column, which left everything at 5–6px on a phone. One tab at a time
+/// buys the room to set type at a readable size.
+enum ReadyTab {
+  modes('MODES'),
+  how('HOW'),
+  stats('STATS');
+
+  const ReadyTab(this.label);
+  final String label;
+}
+
+class _ReadyTabBar extends StatelessWidget {
+  const _ReadyTabBar({required this.selected, required this.onChanged});
+
+  static const _tabFade = Duration(milliseconds: 200);
+
+  final ReadyTab selected;
+  final ValueChanged<ReadyTab> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (final tab in ReadyTab.values) ...[
+          if (tab != ReadyTab.values.first) const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => onChanged(tab),
+            child: AnimatedContainer(
+              duration: _tabFade,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: tab == selected
+                    ? RetroColors.phosphor
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: tab == selected
+                      ? RetroColors.phosphor
+                      : RetroColors.phosphorDim,
+                  width: 1.5,
+                ),
+              ),
+              // The label fades with the fill. Switching it instantly
+              // would leave dark text on a still-dark chip for the
+              // length of the fade.
+              child: AnimatedDefaultTextStyle(
+                duration: _tabFade,
+                style: RetroText.pixel(
+                  size: 8,
+                  color: tab == selected
+                      ? RetroColors.cabinet
+                      : RetroColors.phosphorDim,
+                ),
+                child: Text(tab.label),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReadyModesTab extends StatelessWidget {
+  const _ReadyModesTab({
+    required this.selectedMode,
+    required this.onModeChanged,
+    required this.dailyDayNumber,
+    required this.dailyState,
+    required this.playedDailyToday,
+    required this.onStartDaily,
+  });
+
+  final GameMode selectedMode;
+  final ValueChanged<GameMode> onModeChanged;
+  final int dailyDayNumber;
+  final DailyState dailyState;
+  final bool playedDailyToday;
+  final VoidCallback onStartDaily;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ModeSelector(selected: selectedMode, onChanged: onModeChanged),
+        const SizedBox(height: 18),
+        _DailyChallengeCard(
+          dayNumber: dailyDayNumber,
+          dailyState: dailyState,
+          playedToday: playedDailyToday,
+          onStart: onStartDaily,
+        ),
+      ],
+    );
+  }
+}
+
+class _ReadyHowTab extends StatelessWidget {
+  const _ReadyHowTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'PICKUPS',
+          style: RetroText.pixel(size: 9, color: RetroColors.amberDim),
+        ),
+        const SizedBox(height: 10),
+        const FoodLegend(),
+        const SizedBox(height: 18),
+        Text(
+          'CONTROLS',
+          style: RetroText.pixel(size: 9, color: RetroColors.amberDim),
+        ),
+        const SizedBox(height: 10),
+        for (final line in const [
+          'SWIPE OR DRAG TO TURN',
+          'ARROWS / WASD',
+          'SPACE: PAUSE  ·  M: MENU',
+        ])
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Text(
+              line,
+              textAlign: TextAlign.center,
+              style: RetroText.pixel(size: 7, color: RetroColors.metal),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ReadyStatsTab extends StatelessWidget {
+  const _ReadyStatsTab({
+    required this.stats,
+    required this.topScores,
+    required this.dailyState,
+  });
+
+  final GameStats stats;
+  final List<ScoreEntry> topScores;
+  final DailyState dailyState;
+
+  @override
+  Widget build(BuildContext context) {
+    if (stats.gamesPlayed == 0 && topScores.isEmpty) {
+      return Text(
+        'NO RUNS YET',
+        style: RetroText.pixel(size: 8, color: RetroColors.metal),
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (stats.gamesPlayed > 0) ...[
+          _StatsRow(stats: stats),
+          const SizedBox(height: 16),
+        ],
+        if (dailyState.bestStreak > 0) ...[
+          Text(
+            'BEST STREAK ${dailyState.bestStreak} DAY'
+            '${dailyState.bestStreak == 1 ? '' : 'S'}',
+            style: RetroText.pixel(size: 7, color: RetroColors.zenBlue),
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (topScores.isNotEmpty) _TopScoresList(scores: topScores),
       ],
     );
   }
@@ -1204,7 +1409,7 @@ class _DailyChallengeCard extends StatelessWidget {
         children: [
           Text(
             'DAILY CHALLENGE #$dayNumber',
-            style: RetroText.pixel(size: 7, color: RetroColors.zenBlue),
+            style: RetroText.pixel(size: 8, color: RetroColors.zenBlue),
           ),
           if (dailyState.currentStreak > 0) ...[
             const SizedBox(height: 6),
@@ -1212,14 +1417,14 @@ class _DailyChallengeCard extends StatelessWidget {
               'STREAK ${dailyState.currentStreak} DAY'
               '${dailyState.currentStreak == 1 ? '' : 'S'}'
               '${dailyState.bestStreak > dailyState.currentStreak ? '  ·  BEST ${dailyState.bestStreak}' : ''}',
-              style: RetroText.pixel(size: 6, color: RetroColors.metal),
+              style: RetroText.pixel(size: 7, color: RetroColors.metal),
             ),
           ],
           if (playedToday) ...[
             const SizedBox(height: 4),
             Text(
               "TODAY'S SCORE ${dailyState.lastScore}",
-              style: RetroText.pixel(size: 6, color: RetroColors.phosphorDim),
+              style: RetroText.pixel(size: 7, color: RetroColors.phosphorDim),
             ),
           ],
           const SizedBox(height: 8),
@@ -1248,7 +1453,7 @@ class _TopScoresList extends StatelessWidget {
       children: [
         Text(
           'TOP SCORES',
-          style: RetroText.pixel(size: 7, color: RetroColors.amberDim),
+          style: RetroText.pixel(size: 9, color: RetroColors.amberDim),
         ),
         const SizedBox(height: 6),
         for (var i = 0; i < scores.length && i < 5; i++)
@@ -1258,11 +1463,11 @@ class _TopScoresList extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
-                  width: 18,
+                  width: 22,
                   child: Text(
                     '${i + 1}.',
                     style: RetroText.pixel(
-                      size: 6,
+                      size: 7,
                       color: i == 0 ? RetroColors.amber : RetroColors.metal,
                     ),
                   ),
@@ -1270,14 +1475,14 @@ class _TopScoresList extends StatelessWidget {
                 Text(
                   scores[i].score.toString().padLeft(5, '0'),
                   style: RetroText.pixel(
-                    size: 7,
+                    size: 9,
                     color: i == 0 ? RetroColors.amber : RetroColors.phosphorDim,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   'L${scores[i].level}',
-                  style: RetroText.pixel(size: 6, color: RetroColors.metal),
+                  style: RetroText.pixel(size: 7, color: RetroColors.metal),
                 ),
               ],
             ),
