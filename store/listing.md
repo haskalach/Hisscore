@@ -124,12 +124,5 @@ by the App Store.
 
 ## Still required before submitting
 
-- [ ] **Privacy policy URL.** Both stores require a reachable one even
-      though the app collects nothing. Needs a real contact address on it.
-- [ ] **Upload keystore** created and `android/key.properties` written —
-      see the README. Back the keystore up; losing it means never being
-      able to update the app.
-- [ ] **Screenshots** from a device, per the list above.
-- [x] **App icon 512×512** for Play — `store/play-icon-512.png`, generated.
-- [ ] iOS build has never been compiled. It needs a Mac, provisioning,
-      and a pass over the notification/audio plugin setup.
+Tracked in [RELEASE.md](../RELEASE.md) — privacy policy URL, upload
+keystore, screenshots, and the iOS build.
