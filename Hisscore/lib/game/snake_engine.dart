@@ -107,8 +107,23 @@ class SnakeEngine {
   // ─── Game state ───────────────────────────────────
 
   late List<GridPoint> snake;
+
+  /// Where each segment sat before the current tick. The UI lerps
+  /// between this and [snake] so the snake glides instead of jumping
+  /// a whole cell every tick.
+  late List<GridPoint> previousSnake;
+
   late Direction direction;
-  Direction? queuedDirection;
+
+  /// Pending turns, applied one per tick. Two slots deep so a quick
+  /// L-turn (up, then left) keeps both inputs instead of the second
+  /// overwriting the first.
+  final List<Direction> inputQueue = [];
+
+  /// The turn that will be applied on the next tick, if any.
+  Direction? get queuedDirection =>
+      inputQueue.isEmpty ? null : inputQueue.first;
+
   late GamePhase phase;
   late int score;
   late Duration tickInterval;
@@ -135,10 +150,16 @@ class SnakeEngine {
 
   // ─── Combo system ─────────────────────────────────
 
-  static const int comboWindow = 8;
+  /// How long a combo stays alive, in milliseconds rather than ticks:
+  /// tied to ticks it would silently shrink as the game speeds up,
+  /// making combos hardest exactly when the snake is longest.
+  static const int comboWindowMs = 1920;
   int comboCount = 0;
-  int ticksSinceLastEat = 0;
+  int lastEatMs = -comboWindowMs - 1;
   int bestCombo = 0;
+
+  /// Whether a fresh apple would extend the current combo.
+  bool get comboAlive => elapsedMs - lastEatMs <= comboWindowMs;
 
   double get comboMultiplier {
     if (comboCount <= 1) return 1.0;
@@ -147,10 +168,17 @@ class SnakeEngine {
 
   // ─── Power-ups ────────────────────────────────────
 
+  /// Power-up durations, in milliseconds for the same reason as
+  /// [comboWindowMs].
+  static const int speedBurstMs = 2880;
+  static const int magnetMs = 4800;
+
   bool hasShield = false;
-  bool speedBurstActive = false;
-  int speedBurstTicksLeft = 0;
-  int magnetTicksLeft = 0;
+  int speedBurstUntilMs = 0;
+  int magnetUntilMs = 0;
+
+  bool get speedBurstActive => elapsedMs < speedBurstUntilMs;
+  bool get magnetActive => elapsedMs < magnetUntilMs;
 
   /// Whether shields can currently save the snake. Hardcore mode makes
   /// shields purely cosmetic/score fodder — nothing stops a crash.
@@ -160,6 +188,11 @@ class SnakeEngine {
 
   int totalTicks = 0;
   int totalApplesEaten = 0;
+
+  /// In-game clock, advanced by [tickInterval] on every tick. Keeps all
+  /// timed mechanics on wall-clock durations while staying fully
+  /// deterministic for tests (no DateTime).
+  int elapsedMs = 0;
 
   // ─── Wrap mode ────────────────────────────────────
 
@@ -185,10 +218,11 @@ class SnakeEngine {
     final startX = (initialLength - 1).clamp(1, columns - 1);
     final startY = rows ~/ 2;
     direction = Direction.right;
-    queuedDirection = null;
+    inputQueue.clear();
     snake = [
       for (var i = 0; i < initialLength; i++) GridPoint(startX - i, startY),
     ];
+    previousSnake = List.of(snake);
     score = 0;
     foodsEaten = 0;
     justAte = false;
@@ -197,17 +231,17 @@ class SnakeEngine {
     phase = GamePhase.ready;
     totalTicks = 0;
     totalApplesEaten = 0;
+    elapsedMs = 0;
 
     // Combo
     comboCount = 0;
-    ticksSinceLastEat = comboWindow + 1;
+    lastEatMs = -comboWindowMs - 1;
     bestCombo = 0;
 
     // Power-ups
     hasShield = false;
-    speedBurstActive = false;
-    speedBurstTicksLeft = 0;
-    magnetTicksLeft = 0;
+    speedBurstUntilMs = 0;
+    magnetUntilMs = 0;
 
     // Level
     level = 1;
@@ -238,18 +272,26 @@ class SnakeEngine {
     }
   }
 
-  /// Queue a 90-degree turn. Reverse directions are ignored.
+  /// Queue a 90-degree turn, up to [maxQueuedTurns] deep.
+  ///
+  /// Each turn is checked against the direction the snake will actually
+  /// be travelling when it lands — the last queued turn if one is
+  /// pending, otherwise the current heading — so a buffered L-turn
+  /// works but a reverse is still rejected.
+  static const int maxQueuedTurns = 2;
+
   void queueTurn(Direction next) {
-    if (next == direction.opposite) {
+    final reference = inputQueue.isNotEmpty ? inputQueue.last : direction;
+    if (next == reference || next == reference.opposite) {
       return;
     }
     if (phase == GamePhase.ready) {
-      queuedDirection = next;
+      inputQueue.add(next);
       start();
       return;
     }
-    if (phase == GamePhase.running) {
-      queuedDirection = next;
+    if (phase == GamePhase.running && inputQueue.length < maxQueuedTurns) {
+      inputQueue.add(next);
     }
   }
 
@@ -266,13 +308,16 @@ class SnakeEngine {
     lastEatenFood = null;
     levelJustAdvanced = false;
     totalTicks++;
-    ticksSinceLastEat++;
+    elapsedMs += tickInterval.inMilliseconds;
+    previousSnake = List.of(snake);
 
-    // Apply queued direction.
-    if (queuedDirection != null && queuedDirection != direction.opposite) {
-      direction = queuedDirection!;
+    // Apply the next queued turn.
+    if (inputQueue.isNotEmpty) {
+      final next = inputQueue.removeAt(0);
+      if (next != direction.opposite) {
+        direction = next;
+      }
     }
-    queuedDirection = null;
 
     // Calculate next head position.
     var next = head + direction.delta;
@@ -332,21 +377,18 @@ class SnakeEngine {
     }
 
     // ── Combo decay ──
-    if (ticksSinceLastEat > comboWindow) {
+    if (!comboAlive) {
       comboCount = 0;
     }
 
-    // ── Speed burst countdown ──
-    if (speedBurstActive) {
-      speedBurstTicksLeft--;
-      if (speedBurstTicksLeft <= 0) {
-        speedBurstActive = false;
-        _recalculateSpeed();
-      }
+    // ── Speed burst expiry ──
+    if (speedBurstUntilMs > 0 && !speedBurstActive) {
+      speedBurstUntilMs = 0;
+      _recalculateSpeed();
     }
 
     // ── Despawn timed foods ──
-    foods.removeWhere((f) => f.isExpired(totalTicks));
+    foods.removeWhere((f) => f.isExpired(elapsedMs));
 
     // ── Magnet pull ──
     _applyMagnet();
@@ -377,6 +419,7 @@ class SnakeEngine {
         _updateCombo();
         _checkSpeedIncrease();
         _checkLevelAdvance();
+        _checkHardcoreObstacles();
 
       case FoodType.star:
         final points = (50 * comboMultiplier * scoreMultiplier).round();
@@ -388,8 +431,7 @@ class SnakeEngine {
         score += (5 * scoreMultiplier).round();
 
       case FoodType.speedBurst:
-        speedBurstActive = true;
-        speedBurstTicksLeft = 12;
+        speedBurstUntilMs = elapsedMs + speedBurstMs;
         score += (5 * scoreMultiplier).round();
         _recalculateSpeed();
 
@@ -400,7 +442,7 @@ class SnakeEngine {
         }
 
       case FoodType.magnet:
-        magnetTicksLeft = 20;
+        magnetUntilMs = elapsedMs + magnetMs;
         score += (10 * scoreMultiplier).round();
     }
   }
@@ -410,7 +452,7 @@ class SnakeEngine {
   // ═══════════════════════════════════════════════════
 
   void _updateCombo() {
-    if (ticksSinceLastEat <= comboWindow) {
+    if (comboAlive) {
       comboCount++;
     } else {
       comboCount = 1;
@@ -418,7 +460,7 @@ class SnakeEngine {
     if (comboCount > bestCombo) {
       bestCombo = comboCount;
     }
-    ticksSinceLastEat = 0;
+    lastEatMs = elapsedMs;
   }
 
   // ═══════════════════════════════════════════════════
@@ -480,18 +522,67 @@ class SnakeEngine {
         columns,
         rows,
       );
+      _clearBuriedFood();
       _recalculateSpeed();
     }
   }
 
+  /// Obstacles just moved. Anything they landed on top of can never be
+  /// reached again, so clear it and let a fresh apple spawn.
+  void _clearBuriedFood() {
+    foods.removeWhere((f) => obstacles.contains(f.position));
+    _ensurePrimaryApple();
+  }
+
   Set<GridPoint> _initialObstacles() {
-    if (mode != GameMode.adventure) return {};
+    // Adventure starts clean and earns its obstacles by level; hardcore
+    // opens with them already on the board.
+    final startLevel = switch (mode) {
+      GameMode.adventure => 1,
+      GameMode.hardcore => hardcoreStartLevel,
+      _ => null,
+    };
+    if (startLevel == null) return {};
     return LevelData.safeObstacles(
-      LevelData.obstaclesForLevel(1, columns, rows),
-      [for (var i = 0; i < initialLength; i++) GridPoint((initialLength - 1) - i, rows ~/ 2)],
+      LevelData.obstaclesForLevel(startLevel, columns, rows),
+      [
+        for (var i = 0; i < initialLength; i++)
+          GridPoint((initialLength - 1) - i, rows ~/ 2),
+      ],
       columns,
       rows,
     );
+  }
+
+  // ═══════════════════════════════════════════════════
+  // Obstacles (Hardcore)
+  // ═══════════════════════════════════════════════════
+
+  /// Hardcore has no levels, so its obstacles escalate on apples eaten:
+  /// it opens on [hardcoreStartLevel]'s layout and moves up a pattern
+  /// every [hardcoreApplesPerStep] apples.
+  ///
+  /// Level 7 (corner blocks) is the opener because it keeps the centre
+  /// row clear — the snake starts there heading right, and a pattern
+  /// across that lane would kill it before it could react.
+  static const int hardcoreStartLevel = 7;
+  static const int hardcoreApplesPerStep = 8;
+
+  void _checkHardcoreObstacles() {
+    if (mode != GameMode.hardcore) return;
+    if (totalApplesEaten == 0 ||
+        totalApplesEaten % hardcoreApplesPerStep != 0) {
+      return;
+    }
+    final pseudoLevel =
+        hardcoreStartLevel + totalApplesEaten ~/ hardcoreApplesPerStep;
+    obstacles = LevelData.safeObstacles(
+      LevelData.obstaclesForLevel(pseudoLevel, columns, rows),
+      snake,
+      columns,
+      rows,
+    );
+    _clearBuriedFood();
   }
 
   // ═══════════════════════════════════════════════════
@@ -531,11 +622,19 @@ class SnakeEngine {
       foods.add(FoodItem(
         position: pos,
         type: type,
-        spawnTick: totalTicks,
-        lifetime: 25,
+        spawnMs: elapsedMs,
+        lifetimeMs: bonusFoodLifetimeMs,
       ));
     }
   }
+
+  /// How long a bonus pickup stays on the board.
+  static const int bonusFoodLifetimeMs = 6000;
+
+  /// Food never spawns right on top of the player: closer than this many
+  /// cells (Chebyshev) to the head is free points, or a combo handed out
+  /// by luck instead of steering.
+  static const int minSpawnDistance = 3;
 
   GridPoint _placeFirstFood() {
     final target = GridPoint(head.x + firstFoodDistance, head.y);
@@ -561,7 +660,17 @@ class SnakeEngine {
     if (empty.isEmpty) {
       return null;
     }
-    return empty[random.nextInt(empty.length)];
+    // Prefer cells a fair distance from the head; fall back to anywhere
+    // free once the board is too crowded to be choosy.
+    final farEnough = empty.where(_isFarFromHead).toList();
+    final candidates = farEnough.isEmpty ? empty : farEnough;
+    return candidates[random.nextInt(candidates.length)];
+  }
+
+  bool _isFarFromHead(GridPoint point) {
+    final dx = (point.x - head.x).abs();
+    final dy = (point.y - head.y).abs();
+    return (dx > dy ? dx : dy) >= minSpawnDistance;
   }
 
   // ═══════════════════════════════════════════════════
@@ -569,11 +678,10 @@ class SnakeEngine {
   // ═══════════════════════════════════════════════════
 
   /// Pulls every food item one grid step toward the head, once per
-  /// tick, while [magnetTicksLeft] is active. Never pulls a food onto
-  /// the snake, an obstacle, or another food.
+  /// tick, while [magnetActive]. Never pulls a food onto the snake, an
+  /// obstacle, or another food.
   void _applyMagnet() {
-    if (magnetTicksLeft <= 0) return;
-    magnetTicksLeft--;
+    if (!magnetActive) return;
     foods = [for (final f in foods) _magnetStep(f)];
   }
 
@@ -592,8 +700,8 @@ class SnakeEngine {
     return FoodItem(
       position: next,
       type: item.type,
-      spawnTick: item.spawnTick,
-      lifetime: item.lifetime,
+      spawnMs: item.spawnMs,
+      lifetimeMs: item.lifetimeMs,
     );
   }
 
