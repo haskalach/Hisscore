@@ -26,9 +26,9 @@ void main() {
 
   // Adaptive-icon foreground / splash mark: transparent background,
   // shrunk to sit inside Android's adaptive-icon safe zone.
-  File('assets/icon/icon_foreground.png').writeAsBytesSync(
-    img.encodePng(_drawMark(background: null, scale: 0.66)),
-  );
+  File(
+    'assets/icon/icon_foreground.png',
+  ).writeAsBytesSync(img.encodePng(_drawMark(background: null, scale: 0.66)));
 
   stdout.writeln('Wrote assets/icon/icon.png and icon_foreground.png');
 }
@@ -49,7 +49,13 @@ img.Image _drawMark({required img.Color? background, required double scale}) {
   // Ring body: outer disc in phosphor green, then punch the inner hole
   // with the background color (or fully transparent for the
   // foreground variant) to leave a thick coiled ring.
-  img.fillCircle(image, x: cx.round(), y: cy.round(), radius: outerR.round(), color: _phosphor);
+  img.fillCircle(
+    image,
+    x: cx.round(),
+    y: cy.round(),
+    radius: outerR.round(),
+    color: _phosphor,
+  );
   // BlendMode.direct overwrites pixels outright (including alpha) so a
   // fully-transparent punch color actually erases pixels instead of
   // alpha-blending as a no-op on top of the opaque ring.
